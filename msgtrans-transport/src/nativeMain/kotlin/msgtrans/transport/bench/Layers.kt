@@ -113,7 +113,7 @@ object FramedLayer : BenchLayer {
 
     private suspend fun echoFrames(conn: IoStream) {
         try {
-            serve(Framed(Io(conn), PacketCodec, PacketCodec)) { req ->
+            serve(Framed(Io(conn), PacketCodec.Default, PacketCodec.Default)) { req ->
                 if (req.type != PacketType.Request) throw IllegalStateException("framed echo expects Request, got ${req.type}")
                 Packet.response(req.payload, req.bizType, req.messageId)
             }
@@ -131,7 +131,7 @@ private class FramedConn(private val io: Io, private val payload: ByteArray) : B
     override suspend fun roundTrip(): String? {
         id += 1u
         val out = io.writeBuf
-        PacketCodec.encode(Packet.request(payload, BenchConfig.BIZ_TYPE, id), out)
+        PacketCodec.Default.encode(Packet.request(payload, BenchConfig.BIZ_TYPE, id), out)
         io.stream.write(out)
         io.stream.flush()
         out.clear()
@@ -140,7 +140,7 @@ private class FramedConn(private val io: Io, private val payload: ByteArray) : B
         var response: Packet? = null
         try {
             while (response == null) {
-                response = PacketCodec.decode(buf)
+                response = PacketCodec.Default.decode(buf)
                 if (response == null) {
                     buf.discardReadBytes()
                     if (io.stream.read(buf) < 0) return "eof"

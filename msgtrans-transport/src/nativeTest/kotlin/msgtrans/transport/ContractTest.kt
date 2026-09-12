@@ -118,4 +118,49 @@ class ContractTest {
         serverJob.cancelAndJoin()
         server.close()
     }
+    @Test
+    fun timeoutFiresWhileWaitingForAnInFlightSlot() = runReactor {
+        val port = 39524
+        // Handler parks, so the single in-flight slot is held; a second request must time out on
+        // the slot wait, not hang forever.
+        val server = Transport.bind(this, "127.0.0.1", port) { conn ->
+            conn.onRequest { _, _ -> CompletableDeferred<ByteArray>().await() }
+        }
+        val serverJob = launch { server.acceptLoop() }
+        val conn = Transport.connect(this, "127.0.0.1", port,
+            ConnectionConfig(maxInFlightRequests = 1, requestTimeoutMillis = 150))
+        val first = launch { runCatching { conn.request("hold".encodeToByteArray()) } } // takes the slot
+        withTimeoutOrNull(100) { launch { }.join() }
+        // Second request cannot get a slot; its timeout must still fire.
+        assertFailsWith<RequestTimeoutException> { conn.request("waiter".encodeToByteArray()) }
+        first.cancelAndJoin()
+        conn.close()
+        serverJob.cancelAndJoin()
+        server.close()
+    }
+
+    @Test
+    fun requestFromAnotherThreadIsPostedToTheReactor() = runReactor {
+        val port = 39525
+        val server = Transport.bind(this, "127.0.0.1", port) { conn ->
+            conn.onRequest { payload, _ -> ("echo:" + payload.decodeToString()).encodeToByteArray() }
+        }
+        val serverJob = launch { server.acceptLoop() }
+        val conn = Transport.connect(this, "127.0.0.1", port, ConnectionConfig(requestTimeoutMillis = 5_000))
+        // The worker calls request() from its own thread; request() posts the body to the reactor.
+        // We must NOT block the reactor thread on the worker's future, so the worker reports back
+        // through a deferred we await (suspending, freeing the reactor to run the posted work).
+        val reply = CompletableDeferred<String>()
+        val worker = kotlin.native.concurrent.Worker.start()
+        worker.execute(kotlin.native.concurrent.TransferMode.SAFE, { conn to reply }) { (c, out) ->
+            kotlinx.coroutines.runBlocking {
+                out.complete(c.request("x".encodeToByteArray()).decodeToString())
+            }
+        }
+        assertEquals("echo:x", reply.await())
+        worker.requestTermination()
+        conn.close()
+        serverJob.cancelAndJoin()
+        server.close()
+    }
 }

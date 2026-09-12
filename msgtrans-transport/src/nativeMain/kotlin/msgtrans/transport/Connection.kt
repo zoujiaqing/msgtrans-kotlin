@@ -16,7 +16,9 @@ import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlin.coroutines.ContinuationInterceptor
+import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
 import msgtrans.core.Packet
 import msgtrans.core.PacketCodec
@@ -81,6 +83,11 @@ class ConnectionConfig(
     val inboundCapacity: Int = 256,
     /** Default per-request timeout in ms; 0 disables. request(timeoutMillis=…) overrides. */
     val requestTimeoutMillis: Long = 30_000,
+    /**
+     * Max inbound frame size. A connection's memory ceiling is bounded and tunable:
+     * roughly (inboundCapacity + mailboxCapacity + maxInFlightRequests) × maxPayloadLength.
+     */
+    val maxPayloadLength: Long = PacketCodec.DEFAULT_MAX_PAYLOAD,
     val writeMode: WriteMode = WriteMode.default,
 )
 
@@ -100,6 +107,12 @@ class ConnectionConfig(
  *   registry; the connection stays up.
  * - request cancellation: the awaiting coroutine's cancellation removes its registry entry; a late
  *   response for it is dropped.
+ *
+ * A local request reaches **at most one** terminal state — success, timeout, cancellation or
+ * connection failure — and its registry entry, in-flight slot and deadline are released exactly
+ * once (CompletableDeferred.completeExceptionally / the pending.remove guard make the transition
+ * single-shot). The network may deliver a duplicate, a late, or no response: a response with no
+ * matching pending id is dropped, and no response simply lets the timeout fire.
  */
 class Connection internal constructor(
     stream: IoStream,
@@ -112,15 +125,23 @@ class Connection internal constructor(
     internal constructor(stream: IoStream, scope: CoroutineScope, mailboxCapacity: Int = 256, writeMode: WriteMode = WriteMode.default)
         : this(stream, scope, ConnectionConfig(mailboxCapacity = mailboxCapacity, writeMode = writeMode))
 
+    // The reactor that owns this connection. Public mutating entry points (request/send/close) run
+    // their body here via withContext, so an external thread's call is posted to the reactor and
+    // connection state is only ever touched on the owner thread (see the class doc, "dual entry").
+    private val owner: CoroutineContext =
+        scope.coroutineContext[ContinuationInterceptor] as? CoroutineContext
+            ?: error("connection scope has no dispatcher")
+
+    private val codec = PacketCodec(config.maxPayloadLength)
     private val io = Io(stream)
-    private val framed = Framed(io, PacketCodec, PacketCodec)
+    private val framed = Framed(io, codec, codec)
     private val outbound = Channel<Packet>(config.mailboxCapacity)
 
     // INLINE write mode state (reactor-thread only).
     private val sendQueue = ArrayDeque<Packet>()
     private var writerActive = false
     private val roomWaiters = ArrayDeque<CancellableContinuation<Unit>>()
-    private val inFlightWaiters = ArrayDeque<CancellableContinuation<Unit>>()
+    private val inFlightWaiters = ArrayDeque<Pending>()
     private val inboundRequests = Channel<Packet>(config.inboundCapacity)
     private val inboundEvents = Channel<Message>(config.inboundCapacity)
 
@@ -195,7 +216,7 @@ class Connection internal constructor(
             while (!closed) {
                 val packet = sendQueue.removeFirstOrNull() ?: break
                 wakeOneRoomWaiter()
-                PacketCodec.encode(packet, io.writeBuf)
+                codec.encode(packet, io.writeBuf)
                 writeAll()
             }
         } catch (e: CancellationException) {
@@ -252,56 +273,72 @@ class Connection internal constructor(
         }
     }
 
+    /** One outstanding request: its result and (while parked for a slot) its waiter. */
+    private class Pending(val id: UInt, val result: CompletableDeferred<Packet>) {
+        var slotCont: CancellableContinuation<Unit>? = null
+    }
+
     /**
      * Send a Request and suspend until the matching Response arrives; returns its payload.
      *
-     * Suspends first if [ConnectionConfig.maxInFlightRequests] are already outstanding (count
-     * backpressure). Fails with [RequestTimeoutException] after [timeoutMillis] (default
-     * [ConnectionConfig.requestTimeoutMillis]; 0 disables), and with [ConnectionClosedException]
-     * if the connection closes. In every failure path the registry entry is removed.
+     * Runs on the owning reactor regardless of the calling thread. The [timeoutMillis] deadline
+     * (default [ConnectionConfig.requestTimeoutMillis]; 0 disables) bounds the whole wait —
+     * including time spent waiting for an in-flight slot when [ConnectionConfig.maxInFlightRequests]
+     * are already outstanding — and fails the request with [RequestTimeoutException]. The
+     * connection stays up after a timeout. A timeout does not mean the peer did not receive or run
+     * the request: a request already queued may still be sent, and its later response is dropped.
+     * Closing fails the request with [ConnectionClosedException].
      */
-    suspend fun request(payload: ByteArray, bizType: Int = 0, timeoutMillis: Long = config.requestTimeoutMillis): ByteArray {
-        check(!closed) { "connection closed" }
-        while (!closed && pending.size >= config.maxInFlightRequests) awaitInFlightSlot()
-        if (closed) throw ConnectionClosedException()
-        val id = nextRequestId()
-        val deferred = CompletableDeferred<Packet>()
-        pending[id] = deferred
-        // Register one deadline directly on the reactor timer (cheaper than withTimeout, which
-        // builds a TimeoutCoroutine per call): on expiry, fail this request's deferred and free
-        // its slot. Disposed on any completion. The callback runs on the reactor thread.
-        val deadline: DisposableHandle? = if (timeoutMillis > 0) {
-            @OptIn(InternalCoroutinesApi::class)
-            (coroutineContext[ContinuationInterceptor] as Delay).invokeOnTimeout(timeoutMillis, {
-                if (pending.remove(id) != null) {
-                    deferred.completeExceptionally(RequestTimeoutException(id, timeoutMillis))
-                    wakeOneInFlightWaiter()
+    suspend fun request(payload: ByteArray, bizType: Int = 0, timeoutMillis: Long = config.requestTimeoutMillis): ByteArray =
+        withContext(owner) {
+            check(!closed) { "connection closed" }
+            val id = nextRequestId()
+            val req = Pending(id, CompletableDeferred())
+            // One deadline for the whole call: fails the result and wakes a parked slot-waiter.
+            val deadline: DisposableHandle? = if (timeoutMillis > 0) {
+                @OptIn(InternalCoroutinesApi::class)
+                (owner[ContinuationInterceptor] as Delay).invokeOnTimeout(timeoutMillis, {
+                    if (req.result.completeExceptionally(RequestTimeoutException(id, timeoutMillis))) {
+                        pending.remove(id)
+                        req.slotCont?.let { it.resume(Unit); req.slotCont = null }
+                        wakeOneInFlightWaiter()
+                    }
+                }, owner)
+            } else null
+            try {
+                // Bounded, deadline-abortable wait for an in-flight slot.
+                while (!closed && pending.size >= config.maxInFlightRequests && !req.result.isCompleted) {
+                    suspendCancellableCoroutine<Unit> { cont ->
+                        req.slotCont = cont
+                        inFlightWaiters.addLast(req)
+                        cont.invokeOnCancellation { inFlightWaiters.remove(req); req.slotCont = null }
+                    }
                 }
-            }, coroutineContext)
-        } else null
-        try {
-            enqueue(Packet.request(payload, bizType, id))
-            return deferred.await().payload
-        } finally {
-            deadline?.dispose()
-            if (pending.remove(id) != null) wakeOneInFlightWaiter() // cancel/error path
+                if (req.result.isCompleted) return@withContext req.result.await().payload // timed out waiting
+                if (closed) throw ConnectionClosedException()
+                pending[id] = req.result
+                enqueue(Packet.request(payload, bizType, id))
+                return@withContext req.result.await().payload
+            } finally {
+                deadline?.dispose()
+                inFlightWaiters.remove(req)
+                if (pending.remove(id) != null) wakeOneInFlightWaiter() // cancel/error path
+            }
         }
+
+    private fun wakeOneInFlightWaiter() {
+        val next = inFlightWaiters.removeFirstOrNull() ?: return
+        next.slotCont?.let { it.resume(Unit); next.slotCont = null }
     }
 
-    private suspend fun awaitInFlightSlot() = suspendCancellableCoroutine<Unit> { cont ->
-        inFlightWaiters.addLast(cont)
-        cont.invokeOnCancellation { inFlightWaiters.remove(cont) }
-    }
-
-    private fun wakeOneInFlightWaiter() { inFlightWaiters.removeFirstOrNull()?.resume(Unit) }
-
-    /** Send a one-way message (no response expected). */
-    suspend fun send(payload: ByteArray, bizType: Int = 0) {
+    /** Send a one-way message (no response expected). Runs on the owning reactor. */
+    suspend fun send(payload: ByteArray, bizType: Int = 0): Unit = withContext(owner) {
         check(!closed) { "connection closed" }
         enqueue(Packet.oneWay(payload, bizType, nextOneWayId()))
     }
 
-    suspend fun close() = shutdown()
+    /** Close the connection. Safe to call from any thread; runs on the owning reactor. */
+    suspend fun close(): Unit = withContext(owner) { shutdown() }
 
     private fun shutdown() {
         if (closed) return
@@ -314,7 +351,12 @@ class Connection internal constructor(
         pending.clear()
         sendQueue.clear()
         while (roomWaiters.isNotEmpty()) roomWaiters.removeFirst().resumeWithException(ConnectionClosedException())
-        while (inFlightWaiters.isNotEmpty()) inFlightWaiters.removeFirst().resumeWithException(ConnectionClosedException())
+        // Fail slot-waiters: complete their result and wake them; they observe the completed result.
+        while (inFlightWaiters.isNotEmpty()) {
+            val req = inFlightWaiters.removeFirst()
+            req.result.completeExceptionally(ConnectionClosedException())
+            req.slotCont?.let { it.resume(Unit); req.slotCont = null }
+        }
         // A closed fd is not reliably reported by the reactor, so the loops must be cancelled.
         readJob?.cancel()
         writeJob?.cancel()
