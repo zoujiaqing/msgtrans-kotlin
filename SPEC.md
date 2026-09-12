@@ -162,8 +162,8 @@ interface SessionHandler {
 
 | Stage | Item |
 |---|---|
-| v0 (done) | wire-exact codec; actor Connection; request/response and one-way over TCP; macOS/Linux |
-| v1 | server-push events (subscribe as a `Flow`), request timeout (needs a reactor timer), the Diagnostic plane (send confirmations) |
+| v0 (done) | wire-exact codec; actor Connection; request/response, one-way events (`events(): Flow`), server push; over TCP on macOS and Linux (io_uring default) |
+| v1 | request timeout (needs a reactor timer); the Diagnostic plane (send confirmations); connection registry / broadcast on the server |
 | v1.5 | WebSocket transport; payload compression (Zstd/Zlib); ext-header / route tag |
 | v2 | declarative `@MsgRpc` + KSP-generated client stub / server dispatcher / route ids |
 | v2+ | cross-language conformance fixtures; multi-reactor (thread-per-core) once neton-io provides it |

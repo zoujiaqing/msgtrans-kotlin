@@ -4,7 +4,9 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import msgtrans.core.Packet
 import msgtrans.core.PacketCodec
@@ -14,37 +16,45 @@ import neton.io.core.Io
 import neton.io.core.IoStream
 
 /**
- * A per-connection actor.
+ * A per-connection actor (see SPEC section 3).
  *
- * Following the msgtrans model, one connection is owned by its own coroutines with a bounded
- * outbound mailbox: a read loop that dispatches inbound packets and a write loop that drains
- * the mailbox. All connection state (the pending-request registry and the id counters) is
- * touched only from these coroutines on the single reactor thread, so it is serialized without
- * locks — the actor discipline, realized with coroutines.
+ * The connection is owned by its own coroutines with a bounded outbound mailbox: a read loop
+ * dispatches inbound packets and a write loop drains the mailbox. All connection state (the
+ * pending-request registry and the id counters) is touched only from these coroutines on the
+ * single reactor thread, so it is serialized without locks.
  *
- * Backpressure is per-connection: a slow handler or a full mailbox stalls only this connection.
+ * Three inbound kinds: a Response completes a pending request; a Request is answered by the
+ * [onRequest] handler; a one-way message is delivered on [events]. Backpressure is per-connection.
  */
 class Connection internal constructor(
     stream: IoStream,
-    private val handler: SessionHandler,
     private val scope: CoroutineScope,
     mailboxCapacity: Int = 256,
 ) {
     private val io = Io(stream)
     private val framed = Framed(io, PacketCodec, PacketCodec)
     private val outbound = Channel<Packet>(mailboxCapacity)
+    private val inboundEvents = Channel<Message>(mailboxCapacity)
 
-    // Registry: exactly one response per request. Per-session, only touched on the reactor thread.
     private val pending = HashMap<UInt, CompletableDeferred<Packet>>()
-
-    // Per-session request id: monotonic, refuses to wrap (a reconnect gets a fresh connection).
-    private var requestId: UInt = 0u
-    // One-way id: separate counter, free to wrap (nothing matches on it).
-    private var oneWayId: UInt = 0u
+    private var requestId: UInt = 0u   // per-session, refuses to wrap
+    private var oneWayId: UInt = 0u    // separate, free to wrap
+    private var requestHandler: (suspend (payload: ByteArray, bizType: Int) -> ByteArray)? = null
 
     private var closed = false
     private var readJob: Job? = null
     private var writeJob: Job? = null
+
+    /** Set the handler that answers inbound requests. */
+    fun onRequest(handler: suspend (payload: ByteArray, bizType: Int) -> ByteArray) {
+        requestHandler = handler
+    }
+
+    /** Inbound one-way messages (server push, telemetry, etc.). */
+    fun events(): Flow<Message> = inboundEvents.receiveAsFlow()
+
+    /** Launch a coroutine on this connection's scope (e.g. to collect [events] or push). */
+    fun launch(block: suspend CoroutineScope.() -> Unit): Job = scope.launch(block = block)
 
     internal fun start() {
         writeJob = scope.launch { writeLoop() }
@@ -52,9 +62,7 @@ class Connection internal constructor(
     }
 
     private suspend fun writeLoop() {
-        for (packet in outbound) {
-            framed.send(packet)
-        }
+        for (packet in outbound) framed.send(packet)
     }
 
     private suspend fun readLoop() {
@@ -63,10 +71,10 @@ class Connection internal constructor(
                 when (packet.type) {
                     PacketType.Response -> pending.remove(packet.messageId)?.complete(packet)
                     PacketType.Request -> {
-                        val response = handler.onRequest(packet.payload, packet.bizType)
+                        val response = requestHandler?.invoke(packet.payload, packet.bizType) ?: EMPTY
                         outbound.send(Packet.response(response, packet.bizType, packet.messageId))
                     }
-                    PacketType.OneWay -> handler.onMessage(packet.payload, packet.bizType)
+                    PacketType.OneWay -> inboundEvents.send(Message(packet.bizType, packet.payload))
                 }
             }
         } finally {
@@ -96,12 +104,11 @@ class Connection internal constructor(
         if (closed) return
         closed = true
         outbound.close()
+        inboundEvents.close()
         io.close()
         pending.values.forEach { it.completeExceptionally(ConnectionClosedException()) }
         pending.clear()
-        // Cancel the loops explicitly: closing the fd does not reliably wake a coroutine
-        // parked in epoll/poll (a closed fd is dropped silently), so the reactor would never
-        // see these children finish otherwise.
+        // A closed fd is not reliably reported by the reactor, so the loops must be cancelled.
         readJob?.cancel()
         writeJob?.cancel()
     }
@@ -116,5 +123,9 @@ class Connection internal constructor(
         oneWayId += 1u
         if (oneWayId == 0u) oneWayId = 1u // skip 0, wrap
         return oneWayId
+    }
+
+    private companion object {
+        val EMPTY = ByteArray(0)
     }
 }

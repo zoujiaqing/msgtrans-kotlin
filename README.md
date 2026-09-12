@@ -42,15 +42,13 @@ Connection (actor)
 runReactor {
     val server = Transport.bind(this, "0.0.0.0", 9000) {
         object : SessionHandler {
-            override suspend fun onRequest(payload: ByteArray, bizType: Int) =
-                ("reply:" + payload.decodeToString()).encodeToByteArray()
-        }
+        conn.onRequest { payload, _ -> ("reply:" + payload.decodeToString()).encodeToByteArray() }
     }
     launch { server.acceptLoop() }
 
     val conn = Transport.connect(this, "127.0.0.1", 9000)
-    val reply = conn.request("ping".encodeToByteArray(), bizType = 7)
-    // reply == "reply:ping"
+    val reply = conn.request("ping".encodeToByteArray(), bizType = 7)   // reply == "reply:ping"
+    conn.events().collect { msg -> /* inbound one-way / server push */ }
 }
 ```
 
@@ -65,7 +63,7 @@ runReactor {
 ## Status
 
 P0: wire-exact Packet codec (verified against the exact byte layout) and the actor transport
-(request/response and one-way over TCP) pass on macOS (kqueue) and Linux (epoll and poll).
+(request/response, one-way events, server push) pass on macOS (kqueue) and Linux (io_uring / epoll).
 
 Next: compression (Zstd/Zlib payloads), WebSocket transport, request timeouts (needs a reactor
 timer), the ext-header/route-tag path, and shared cross-language conformance fixtures against the

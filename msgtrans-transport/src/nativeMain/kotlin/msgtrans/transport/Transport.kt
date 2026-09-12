@@ -8,37 +8,33 @@ import neton.io.net.listen as netListen
 /** Entry points for opening connections. Everything runs inside a neton-io reactor. */
 object Transport {
 
-    /** Connect to [host]:[port] and start the connection actor. */
-    suspend fun connect(
-        scope: CoroutineScope,
-        host: String,
-        port: Int,
-        handler: SessionHandler = object : SessionHandler {},
-    ): Connection {
-        val stream = netConnect(host, port)
-        return Connection(stream, handler, scope).also { it.start() }
-    }
+    /** Connect to [host]:[port] and start the connection actor. Set [Connection.onRequest] as needed. */
+    suspend fun connect(scope: CoroutineScope, host: String, port: Int): Connection =
+        Connection(netConnect(host, port), scope).also { it.start() }
 
-    /** Bind a listener; call [TransportServer.acceptLoop] to start serving. */
+    /**
+     * Bind a listener. [onConnection] configures each accepted connection synchronously before it
+     * starts (set its request handler, launch event collection or a server push).
+     */
     suspend fun bind(
         scope: CoroutineScope,
         host: String,
         port: Int,
-        handlerFactory: () -> SessionHandler,
-    ): TransportServer = TransportServer(netListen(host, port), scope, handlerFactory)
+        onConnection: (Connection) -> Unit,
+    ): TransportServer = TransportServer(netListen(host, port), scope, onConnection)
 }
 
 /** A bound server. Each accepted connection becomes its own [Connection] actor. */
 class TransportServer internal constructor(
     private val listener: TcpListener,
     private val scope: CoroutineScope,
-    private val handlerFactory: () -> SessionHandler,
+    private val onConnection: (Connection) -> Unit,
 ) {
-    /** Accept connections until cancelled, starting one actor per connection. */
     suspend fun acceptLoop() {
         while (true) {
-            val stream = listener.accept()
-            Connection(stream, handlerFactory(), scope).start()
+            val conn = Connection(listener.accept(), scope)
+            onConnection(conn)
+            conn.start()
         }
     }
 

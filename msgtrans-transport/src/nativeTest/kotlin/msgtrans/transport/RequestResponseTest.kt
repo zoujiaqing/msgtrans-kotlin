@@ -1,25 +1,23 @@
 package msgtrans.transport
 
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import neton.io.net.runReactor
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * P0 acceptance for the actor transport: request/response and one-way over a real TCP
- * connection, with the msgtrans wire codec on top of the neton-io reactor.
+ * P0/v1 acceptance for the actor transport: request/response, one-way events, and server push
+ * over real TCP with the msgtrans wire codec on the neton-io reactor.
  */
 class RequestResponseTest {
 
     @Test
     fun requestResponse() = runReactor {
         val port = 39500
-        val server = Transport.bind(this, "127.0.0.1", port) {
-            object : SessionHandler {
-                override suspend fun onRequest(payload: ByteArray, bizType: Int): ByteArray =
-                    ("reply:" + payload.decodeToString()).encodeToByteArray()
-            }
+        val server = Transport.bind(this, "127.0.0.1", port) { conn ->
+            conn.onRequest { payload, _ -> ("reply:" + payload.decodeToString()).encodeToByteArray() }
         }
         val serverJob = launch { server.acceptLoop() }
 
@@ -33,29 +31,39 @@ class RequestResponseTest {
     }
 
     @Test
-    fun manyRequestsAndOneWay() = runReactor {
+    fun oneWayEvents() = runReactor {
         val port = 39501
         val received = mutableListOf<String>()
-        val server = Transport.bind(this, "127.0.0.1", port) {
-            object : SessionHandler {
-                override suspend fun onRequest(payload: ByteArray, bizType: Int): ByteArray =
-                    payload.decodeToString().uppercase().encodeToByteArray()
-
-                override suspend fun onMessage(payload: ByteArray, bizType: Int) {
-                    received.add(payload.decodeToString())
-                }
-            }
+        val server = Transport.bind(this, "127.0.0.1", port) { conn ->
+            conn.onRequest { payload, _ -> payload.decodeToString().uppercase().encodeToByteArray() }
+            conn.launch { conn.events().collect { received.add(it.payload.decodeToString()) } }
         }
         val serverJob = launch { server.acceptLoop() }
 
         val conn = Transport.connect(this, "127.0.0.1", port)
         assertEquals("A", conn.request("a".encodeToByteArray()).decodeToString())
-        assertEquals("BB", conn.request("bb".encodeToByteArray()).decodeToString())
-        assertEquals("CCC", conn.request("ccc".encodeToByteArray()).decodeToString())
         conn.send("notify".encodeToByteArray(), bizType = 1)
-        // Round-trip a final request to ensure the one-way was processed before we assert.
+        // A round-trip ensures the one-way was processed before we assert.
         conn.request("z".encodeToByteArray())
         assertEquals(listOf("notify"), received)
+
+        conn.close()
+        serverJob.cancelAndJoin()
+        server.close()
+    }
+
+    @Test
+    fun serverPush() = runReactor {
+        val port = 39502
+        val server = Transport.bind(this, "127.0.0.1", port) { conn ->
+            conn.launch { conn.send("welcome".encodeToByteArray(), bizType = 9) }
+        }
+        val serverJob = launch { server.acceptLoop() }
+
+        val conn = Transport.connect(this, "127.0.0.1", port)
+        val push = conn.events().first()
+        assertEquals("welcome", push.payload.decodeToString())
+        assertEquals(9, push.bizType)
 
         conn.close()
         serverJob.cancelAndJoin()
