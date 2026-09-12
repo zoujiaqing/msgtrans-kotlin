@@ -14,9 +14,8 @@ msgtrans-kotlin is the language mapping of the msgtrans Rust surface and the Typ
 the same Packet semantics, the same request/response correlation, the same wire bytes. The wire
 format is the single source of truth; cross-language conformance is the contract (§9).
 
-It is the long-connection / RPC / event channel for the Kotlin/Native stack (for example
-`privchat-server ↔ privchat-application`, and Pulse telemetry). It does not contain any business
-or IM logic.
+It is the long-connection / RPC / event channel for the Kotlin/Native stack (for example the
+Pulse analytics/APM ingest and remote-config channel). It does not contain any business logic.
 
 The I/O foundation is neton-io; msgtrans-kotlin owns the **protocol and the actor connection
 model**, neton-io owns the reactor and the sockets.
@@ -217,7 +216,7 @@ belongs to neton-io and is out of scope here; see the neton-io SPEC.
 
 ## 8. Non-goals
 
-- No business/IM logic (conversations, sync, presence, media) — that is PrivChat.
+- No business/IM logic (conversations, sync, presence, media) — msgtrans is a generic transport; such logic belongs to its consumers.
 - No fan-out event bus — backpressure is per-connection.
 - No lock-based concurrency — the single-reactor ownership is the concurrency model.
 
