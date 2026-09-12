@@ -59,8 +59,8 @@ per-connection actor model.
 Connection (actor)
 ├── read loop   — decode inbound packets and dispatch:
 │                 Response  -> complete the pending request
-│                 Request   -> handler -> enqueue Response
-│                 OneWay    -> handler
+│                 Request   -> onRequest handler -> enqueue Response
+│                 OneWay    -> events() flow
 ├── write loop  — drain the bounded outbound mailbox -> encode -> socket
 └── registry    — messageId -> pending response (sole arbiter of one-response-per-request)
         │
@@ -130,7 +130,7 @@ id counter is per-session and refuses to wrap; a reconnect gets a fresh session.
 | Module | Contents | Targets |
 |---|---|---|
 | `msgtrans-core` | `Packet`, `PacketCodec` (wire-exact), `PacketType`, `Compression`, flags | all native |
-| `msgtrans-transport` | `Connection` (actor), `Transport` client/server, `SessionHandler` | Apple + Linux (neton-io reactor) |
+| `msgtrans-transport` | `Connection` (actor), `Transport` client/server, `Message` | Apple + Linux (neton-io reactor) |
 
 Future modules: `msgtrans-rpc` (declarative `@MsgRpc` with KSP-generated stubs), `msgtrans-ws`
 (WebSocket transport), `msgtrans-testkit` (cross-language conformance fixtures).
@@ -141,20 +141,23 @@ Future modules: `msgtrans-rpc` (declarative `@MsgRpc` with KSP-generated stubs),
 
 ```kotlin
 runReactor {
-    val server = Transport.bind(this, host, port) { handlerFactory() }
+    val server = Transport.bind(this, host, port) { conn ->
+        conn.onRequest { payload, bizType -> response }          // answer inbound requests
+        conn.launch { conn.events().collect { msg -> /* … */ } } // inbound one-way, optional
+    }
     launch { server.acceptLoop() }
 
-    val conn = Transport.connect(this, host, port, handler)
-    val response: ByteArray = conn.request(payload, bizType)   // suspends for the Response
-    conn.send(payload, bizType)                                 // one-way
+    val conn = Transport.connect(this, host, port)
+    val response: ByteArray = conn.request(payload, bizType)     // suspends for the Response
+    conn.send(payload, bizType)                                  // one-way
+    conn.events().collect { msg -> /* server push */ }           // Flow of inbound one-way
     conn.close()
 }
-
-interface SessionHandler {
-    suspend fun onRequest(payload: ByteArray, bizType: Int): ByteArray
-    suspend fun onMessage(payload: ByteArray, bizType: Int)
-}
 ```
+
+`Connection` API: `request` (suspends for the Response), `send` (one-way), `onRequest` (handler),
+`events(): Flow<Message>` (inbound one-way / server push), `launch` (a coroutine on the
+connection scope), `close`.
 
 ---
 

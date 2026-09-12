@@ -40,8 +40,7 @@ Connection (actor)
 
 ```kotlin
 runReactor {
-    val server = Transport.bind(this, "0.0.0.0", 9000) {
-        object : SessionHandler {
+    val server = Transport.bind(this, "0.0.0.0", 9000) { conn ->
         conn.onRequest { payload, _ -> ("reply:" + payload.decodeToString()).encodeToByteArray() }
     }
     launch { server.acceptLoop() }
