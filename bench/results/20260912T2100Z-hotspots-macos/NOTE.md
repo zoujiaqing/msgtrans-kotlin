@@ -20,3 +20,9 @@ What it shows (for this cadence and host):
 
 What it does not show: allocation counts, GC pause time, Linux/io_uring behaviour, behaviour at
 higher in-flight depth or near saturation.
+
+CORRECTION (later the same day): sample(1) counts a thread parked in kevent as a sample in kevent.
+With 1 in-flight per connection on one host, much of that is waiting for the peer, so the shares
+above are not CPU shares, and "rpc has 2x kevent because of extra coroutine hops" does not hold:
+the reactor drains its task queue completely before polling (polls_zero_timeout=0 in the counters),
+so hops never add polls. Use the NETON_IO_STATS counters, not these samples, for syscall claims.

@@ -127,15 +127,40 @@ Result: **no stable benefit** at 1 in-flight per connection; the difference is i
 spread. B1 stays available behind `WriteMode` for other cadences (pipelined sends, many senders per
 connection) but is not adopted as default.
 
-**CPU hotspots** (`sample(1)`, `bench/results/20260912T2100Z-hotspots-macos/`): on this host the
-reactor thread spends most of its samples in `recvfrom`/`sendto`/`kevent`, one of each per request;
-Kotlin user code (codec, channels, continuations, allocator, GC) is the small remainder in both
-`framed` and `rpc`. `rpc` shows about twice the `kevent` samples of `framed`: the reactor loop polls
-with a zero timeout whenever dispatched tasks are pending, so each extra coroutine hop the actor adds
-becomes an extra `kevent` call. That points the next experiment at the reactor's poll/dispatch
-policy and syscall count (arm-once / edge-triggered, deferring the poll while runnable tasks remain,
-and io_uring on Linux) rather than at a user-space rewrite of the connection (B2). B2 remains a
-candidate if a Linux/io_uring profile disagrees.
+**CPU samples** (`sample(1)`, `bench/results/20260912T2100Z-hotspots-macos/`): most reactor-thread
+samples sit in `recvfrom`/`sendto`/`kevent`, Kotlin user code is the small remainder, in both
+`framed` and `rpc`. Caveat: a sample stopped in `kevent` may be *waiting* (same-host, 1 in-flight,
+the peer's turn), so these shares are not CPU shares and the earlier reading that `rpc` "doubles
+the kevent calls" was not supported — the reactor drains all tasks before it polls, so extra
+coroutine hops do not add polls. Syscall behaviour is now **counted** instead (`NETON_IO_STATS=1`,
+per-request table in `summary.md`): e.g. 2 `recv` per request on the client, one of them EAGAIN
+(speculative read before readiness), 1 `send`, and ~0.3 `kevent` at 8 connections. The next
+single-variable experiment is the reactor's local task budget (`NETON_IO_TASK_BUDGET`), compared
+on poll count, throughput and tail latency; arm-once / edge-triggered is a separate experiment
+because it changes the event contract. B2 remains a candidate if a profile shows user-space
+dominating.
+
+**Reactor counters and the task-budget experiment** (`NETON_IO_STATS=1`, `NETON_IO_TASK_BUDGET`;
+dirs `20260912T211609Z-stats-overhead-c50`, `…-budget-c50-stats`, `…-budget-c200-stats`, host load
+17–82 during these runs, so only the counters and the interleaved pairs are meaningful):
+
+| per request (medians, client and server alike) | framed | rpc |
+|---|---|---|
+| recv calls / of which EAGAIN | 2.00 / 1.00 | 2.00 / 1.00 |
+| send calls | 1.00 | 1.00 |
+| kevent calls (50 conns, server) | 0.18 | 0.08 |
+| dispatched tasks | 1.00 | 3.00 |
+| zero-timeout polls (budget 0) | 0 | 0 |
+
+- The actor costs exactly two extra continuation dispatches per request on each side; it does not
+  add polls (the loop drains every task before polling, zero-timeout polls are 0).
+- Every request pays one `recv` that returns EAGAIN: the reactor reads speculatively before
+  arming readiness, and at 1 in-flight the response is never there yet. That is the one clearly
+  wasted syscall per request in this cadence; changing the read-before-arm policy is a candidate
+  single-variable experiment (it trades that syscall for latency when data is already present).
+- Task budget 64 vs unbounded: adds zero-timeout polls (0.03–0.05/req) and no stable throughput or
+  tail-latency benefit within the spread; default stays unbounded.
+- Enabling the counters: no measurable throughput cost within the spread (5 interleaved pairs).
 
 The optimization stays benchmark-driven (see SPEC): one variable per experiment, results kept under
 `bench/results/`, contracts (ordering, backpressure, cancellation, close) checked by tests in both

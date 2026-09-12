@@ -241,7 +241,9 @@ belongs to neton-io and is out of scope here; see the neton-io SPEC.
   Done: B1 (outbound Channel + write coroutine vs inline single-writer, `WriteMode`) — no stable
   benefit at 1 in-flight on macOS (README). Hotspots there put the reactor's syscalls
   (recv/send/kevent per request) far above user-space cost; the actor's extra hops appear mostly
-  as extra kevent calls. Next: reactor poll/dispatch policy and syscall count (neton-io), Linux
+  as extra kevent calls. Counted (not sampled): the actor adds exactly 2 dispatches per request and no polls; every
+  request pays one EAGAIN recv (speculative read before arming readiness); a bounded task budget
+  gave no stable benefit. Next: read-before-arm policy as a single-variable experiment, Linux
   io_uring profile; C (replace `CompletableDeferred` with a stored continuation) and B2 (callback
   driven connection state machine, needs a neton-io interface that fits both readiness and
   completion drivers) only when a profile says user-space is the bottleneck.

@@ -1,0 +1,2 @@
+READY mode=rpc host=0.0.0.0 port=9000
+NETON_IO_STATS {"driver":"kqueue","task_budget":0,"rounds":10606,"tasks_run":1016255,"max_tasks_in_round":291,"polls":10605,"polls_zero_timeout":0,"polls_no_events":0,"events":338585,"max_events_in_poll":64,"reads":677064,"read_bytes":27066560,"reads_would_block":338531,"writes":338332,"write_bytes":27066560,"writes_would_block":0}

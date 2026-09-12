@@ -1,0 +1,21 @@
+{
+  "timestamp_utc": "20260912T211957Z",
+  "label": "budget-c200-stats",
+  "topology": "same-host (server and client share CPU, memory and the loopback stack)",
+  "host": {"os": "Darwin 25.2.0", "arch": "arm64", "cpu": "Apple M1 Pro", "ncpu": 10,
+           "load_avg_at_start": "17.64 26.52 21.73", "note": "compare load_avg with ncpu: other work on the host contaminates same-host results"},
+  "versions": {
+    "msgtrans-kotlin": "81ec8ab-dirty",
+    "neton-io": "03f1cc1",
+    "kotlin": "2.4.0",
+    "build_type": "release",
+    "target": "macosArm64",
+    "benchServer_sha256": "4752d82d557cf570c70abeaaedad651690a51de20cfdf31f8ee1f46edaf6af58",
+    "benchClient_sha256": "a7e3ad803b7edd4aa240c8f9387ab864f279dcef808ff035deb8e787f125824d"
+  },
+  "params": {"modes": "rpc,framed", "connections": 200, "payload_bytes": 64, "inflight_per_connection": 1,
+             "warmup_s": 2, "duration_s": 5, "repeat": 5, "timeout_s": 10, "port": 9000,
+             "client_host": "127.0.0.1"},
+  "env": {"NETON_IO_DRIVER": "", "NETON_IO_URING_DEPTH": ""},
+  "ab": "NETON_IO_TASK_BUDGET=0,64"
+}

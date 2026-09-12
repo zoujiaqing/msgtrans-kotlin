@@ -1,0 +1,2 @@
+READY mode=framed host=0.0.0.0 port=9000
+NETON_IO_STATS {"driver":"kqueue","task_budget":64,"rounds":126743,"tasks_run":721565,"max_tasks_in_round":64,"polls":126742,"polls_zero_timeout":0,"polls_no_events":0,"events":721363,"max_events_in_poll":64,"reads":1442543,"read_bytes":57685760,"reads_would_block":721270,"writes":721072,"write_bytes":57685760,"writes_would_block":0}

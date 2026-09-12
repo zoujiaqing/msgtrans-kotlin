@@ -1,0 +1,12 @@
+NETON_IO_STATS {"driver":"kqueue","task_budget":64,"rounds":32855,"tasks_run":1825728,"max_tasks_in_round":64,"polls":32854,"polls_zero_timeout":21514,"polls_no_events":133,"events":608526,"max_events_in_poll":50,"reads":1216902,"read_bytes":48674080,"reads_would_block":608476,"writes":608426,"write_bytes":48674080,"writes_would_block":0}
+{
+  "status": "ok",
+  "message": null,
+  "config": {"mode": "rpc", "label": "budget-c50-stats NETON_IO_TASK_BUDGET=64", "host": "127.0.0.1", "port": 9000, "connections": 50, "payload_bytes": 64, "inflight_per_connection": 1, "warmup_s": 2.0, "duration_s": 5.0, "timeout_s": 10.0, "connect_timeout_s": 30.0, "exit_timeout_s": 10.0},
+  "env": {"NETON_IO_DRIVER": null, "NETON_IO_URING_DEPTH": null},
+  "phases_ms": {"connect": 2.205, "warmup": 2000.0, "measure_window": 5002.447, "measure_overrun": 2.447, "exit": 5.263, "total": 7007.582},
+  "progress": {"connected": 50, "finished": 50, "phase": "done", "per_connection_measured": {"min": 8926, "max": 8927, "zero": 0}, "started_at_utc": 1789247913},
+  "results": {"warmup_requests": 162080, "measured_requests": 446346, "throughput_req_s": 89225.5, "latency_us": {"mean": 560.075, "min": 198.917, "p50": 540.671, "p90": 704.511, "p99": 933.887, "p999": 2228.223, "max": 3715.25, "resolution": "log-linear, 32 buckets per octave (~3%)"}, "errors": {}, "error_samples": []},
+  "client_resources": {"user_cpu_s": 1.8683480000000001, "sys_cpu_s": 4.950066, "cpu_utilization": 0.973, "max_rss_bytes": 17727488, "note": "getrusage(RUSAGE_SELF) over the whole client process lifetime; server resources are sampled by the runner"}
+}
+

@@ -1,0 +1,1 @@
+Host load average 17-82 on 10 cores from other sessions' Gradle daemons during these runs. Throughput/latency columns are contaminated; the per-request reactor counters (NETON_IO_STATS) are counts and do not depend on load. Interleaved A/B pairs are still comparable within their spread.

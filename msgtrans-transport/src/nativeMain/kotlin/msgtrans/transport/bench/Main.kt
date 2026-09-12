@@ -3,9 +3,14 @@
 package msgtrans.transport.bench
 
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.staticCFunction
+import neton.io.net.dumpReactorStats
 import neton.io.net.runReactor
+import platform.posix.SIGINT
 import platform.posix.SIGPIPE
+import platform.posix.SIGTERM
 import platform.posix.SIG_IGN
+import platform.posix._exit
 import platform.posix.signal
 import kotlin.system.exitProcess
 
@@ -32,8 +37,23 @@ private fun ignoreSigpipe() {
  * run, 1 if any connection failed validation / hit EOF / errored, 2 if the watchdog fired.
  * See bench/run.sh for the repeatable driver that fixes build, driver and parameters.
  */
+/**
+ * The runner stops the server with SIGTERM. Print the reactor counters (NETON_IO_STATS=1) before
+ * dying so the server side of a run is observable too. The handler runs on the reactor thread
+ * while it is parked in the poller, so the counters are quiescent; it then exits immediately.
+ */
+private fun dumpStatsOnTerm() {
+    val handler = staticCFunction<Int, Unit> { _ ->
+        dumpReactorStats()
+        _exit(0)
+    }
+    signal(SIGTERM, handler)
+    signal(SIGINT, handler)
+}
+
 fun benchServerMain(args: Array<String>) {
     ignoreSigpipe()
+    dumpStatsOnTerm()
     val kv = args.associate { a -> a.substringBefore('=') to a.substringAfter('=', "") }
     val mode = kv["mode"] ?: run {
         println("usage: benchServer mode=raw|framed|rpc [host=0.0.0.0] [port=9000]")
