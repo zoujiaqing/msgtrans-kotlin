@@ -13,11 +13,15 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import msgtrans.core.Packet
 import msgtrans.core.PacketCodec
 import msgtrans.core.PacketType
 import neton.io.core.Framed
+import neton.io.core.ClosedException
 import neton.io.core.Io
+import neton.io.core.IoException
 import neton.io.core.IoStream
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -61,22 +65,61 @@ enum class WriteMode {
  * Three inbound kinds: a Response completes a pending request; a Request is answered by the
  * [onRequest] handler; a one-way message is delivered on [events]. Backpressure is per-connection.
  */
+/**
+ * Bounds and timeouts for one connection. All are finite by default: memory cannot grow without
+ * bound and a request cannot wait forever. See the class doc for the terminal-state contract.
+ */
+class ConnectionConfig(
+    /** Outbound queue depth; a sender suspends when it is full (backpressure). */
+    val mailboxCapacity: Int = 256,
+    /** Max requests awaiting a response at once; request() suspends when reached, never unbounded. */
+    val maxInFlightRequests: Int = 1024,
+    /** Inbound request queue depth handed to the handler loop; the read loop stalls when full. */
+    val inboundCapacity: Int = 256,
+    /** Default per-request timeout in ms; 0 disables. request(timeoutMillis=…) overrides. */
+    val requestTimeoutMillis: Long = 30_000,
+    val writeMode: WriteMode = WriteMode.default,
+)
+
+/**
+ * A per-connection actor (see SPEC section 3).
+ *
+ * Threading: the connection and all its state (pending registry, id counters, send queue) are
+ * owned by the reactor thread; every method is a suspend/`launch` on that reactor and must be
+ * called from it. request/send are enqueue-confirmed: the call returns (for send) or begins
+ * waiting (for request) once the packet is queued, not once bytes reach the socket.
+ *
+ * Terminal states — every one releases all resources exactly once (see [shutdown]):
+ * - close(): pending requests fail with [ConnectionClosedException]; queued outbound is dropped;
+ *   room/in-flight waiters are released; the fd is closed and the loops cancelled.
+ * - peer EOF / read error: the read loop ends and runs the same shutdown.
+ * - request timeout: that one request fails with [RequestTimeoutException] and is removed from the
+ *   registry; the connection stays up.
+ * - request cancellation: the awaiting coroutine's cancellation removes its registry entry; a late
+ *   response for it is dropped.
+ */
 class Connection internal constructor(
     stream: IoStream,
     private val scope: CoroutineScope,
-    private val mailboxCapacity: Int = 256,
-    val writeMode: WriteMode = WriteMode.default,
+    private val config: ConnectionConfig = ConnectionConfig(),
 ) {
+    val writeMode: WriteMode get() = config.writeMode
+    private val mailboxCapacity: Int get() = config.mailboxCapacity
+    /** Back-compat / explicit constructor used by tests and Transport. */
+    internal constructor(stream: IoStream, scope: CoroutineScope, mailboxCapacity: Int = 256, writeMode: WriteMode = WriteMode.default)
+        : this(stream, scope, ConnectionConfig(mailboxCapacity = mailboxCapacity, writeMode = writeMode))
+
     private val io = Io(stream)
     private val framed = Framed(io, PacketCodec, PacketCodec)
-    private val outbound = Channel<Packet>(mailboxCapacity)
+    private val outbound = Channel<Packet>(config.mailboxCapacity)
 
     // INLINE write mode state (reactor-thread only).
     private val sendQueue = ArrayDeque<Packet>()
     private var writerActive = false
     private val roomWaiters = ArrayDeque<CancellableContinuation<Unit>>()
-    private val inboundRequests = Channel<Packet>(mailboxCapacity)
-    private val inboundEvents = Channel<Message>(mailboxCapacity)
+    private val inFlightWaiters = ArrayDeque<CancellableContinuation<Unit>>()
+    private val inboundRequests = Channel<Packet>(config.inboundCapacity)
+    private val inboundEvents = Channel<Message>(config.inboundCapacity)
 
     private val pending = HashMap<UInt, CompletableDeferred<Packet>>()
     private var requestId: UInt = 0u   // per-session, refuses to wrap
@@ -106,7 +149,11 @@ class Connection internal constructor(
     }
 
     private suspend fun writeLoop() {
-        for (packet in outbound) framed.send(packet)
+        try {
+            for (packet in outbound) framed.send(packet)
+        } catch (_: IoException) {
+            shutdown()
+        }
     }
 
     /** Put [packet] on the outbound path according to [writeMode]; suspends under backpressure. */
@@ -163,10 +210,11 @@ class Connection internal constructor(
     }
 
     private suspend fun writeAll() {
-        io.stream.write(io.writeBuf)
-        if (io.writeBuf.readableBytes > 0) { // short write without suspension = I/O error
+        try {
+            io.stream.write(io.writeBuf)
+        } catch (e: IoException) {
             shutdown()
-            throw ConnectionClosedException("write failed")
+            throw ConnectionClosedException("write failed: ${e.message}")
         }
         io.writeBuf.clear()
         io.stream.flush()
@@ -178,11 +226,15 @@ class Connection internal constructor(
         try {
             framed.incoming().collect { packet ->
                 when (packet.type) {
-                    PacketType.Response -> pending.remove(packet.messageId)?.complete(packet)
+                    PacketType.Response -> pending.remove(packet.messageId)?.let { it.complete(packet); wakeOneInFlightWaiter() }
                     PacketType.Request -> inboundRequests.send(packet)
                     PacketType.OneWay -> inboundEvents.send(Message(packet.bizType, packet.payload))
                 }
             }
+        } catch (_: ClosedException) {
+            // close() resumed our parked read; normal termination.
+        } catch (_: IoException) {
+            // peer reset / socket error; terminate the connection.
         } finally {
             shutdown()
         }
@@ -197,15 +249,39 @@ class Connection internal constructor(
         }
     }
 
-    /** Send a Request and suspend until the matching Response arrives; returns its payload. */
-    suspend fun request(payload: ByteArray, bizType: Int = 0): ByteArray {
+    /**
+     * Send a Request and suspend until the matching Response arrives; returns its payload.
+     *
+     * Suspends first if [ConnectionConfig.maxInFlightRequests] are already outstanding (count
+     * backpressure). Fails with [RequestTimeoutException] after [timeoutMillis] (default
+     * [ConnectionConfig.requestTimeoutMillis]; 0 disables), and with [ConnectionClosedException]
+     * if the connection closes. In every failure path the registry entry is removed.
+     */
+    suspend fun request(payload: ByteArray, bizType: Int = 0, timeoutMillis: Long = config.requestTimeoutMillis): ByteArray {
         check(!closed) { "connection closed" }
+        while (!closed && pending.size >= config.maxInFlightRequests) awaitInFlightSlot()
+        if (closed) throw ConnectionClosedException()
         val id = nextRequestId()
         val deferred = CompletableDeferred<Packet>()
         pending[id] = deferred
-        enqueue(Packet.request(payload, bizType, id))
-        return deferred.await().payload
+        try {
+            enqueue(Packet.request(payload, bizType, id))
+            val response = if (timeoutMillis > 0) {
+                try { withTimeout(timeoutMillis) { deferred.await() } }
+                catch (e: TimeoutCancellationException) { throw RequestTimeoutException(id, timeoutMillis) }
+            } else deferred.await()
+            return response.payload
+        } finally {
+            if (pending.remove(id) != null) wakeOneInFlightWaiter() // timeout/cancel/error path
+        }
     }
+
+    private suspend fun awaitInFlightSlot() = suspendCancellableCoroutine<Unit> { cont ->
+        inFlightWaiters.addLast(cont)
+        cont.invokeOnCancellation { inFlightWaiters.remove(cont) }
+    }
+
+    private fun wakeOneInFlightWaiter() { inFlightWaiters.removeFirstOrNull()?.resume(Unit) }
 
     /** Send a one-way message (no response expected). */
     suspend fun send(payload: ByteArray, bizType: Int = 0) {
@@ -226,6 +302,7 @@ class Connection internal constructor(
         pending.clear()
         sendQueue.clear()
         while (roomWaiters.isNotEmpty()) roomWaiters.removeFirst().resumeWithException(ConnectionClosedException())
+        while (inFlightWaiters.isNotEmpty()) inFlightWaiters.removeFirst().resumeWithException(ConnectionClosedException())
         // A closed fd is not reliably reported by the reactor, so the loops must be cancelled.
         readJob?.cancel()
         writeJob?.cancel()
