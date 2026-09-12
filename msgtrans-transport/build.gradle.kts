@@ -1,7 +1,13 @@
 plugins { kotlin("multiplatform") }
 repositories { mavenCentral() }
 kotlin {
-    macosArm64(); macosX64(); linuxX64(); linuxArm64()
+    val nativeTargets = listOf(macosArm64(), macosX64(), linuxX64(), linuxArm64())
+    nativeTargets.forEach { target ->
+        target.binaries {
+            executable("requestServer") { entryPoint = "msgtrans.transport.requestServerMain" }
+            executable("requestClient") { entryPoint = "msgtrans.transport.requestClientMain" }
+        }
+    }
     sourceSets {
         commonMain.dependencies {
             api(project(":msgtrans-core"))

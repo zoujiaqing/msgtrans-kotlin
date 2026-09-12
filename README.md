@@ -67,3 +67,24 @@ P0: wire-exact Packet codec (verified against the exact byte layout) and the act
 Next: compression (Zstd/Zlib payloads), WebSocket transport, request timeouts (needs a reactor
 timer), the ext-header/route-tag path, and shared cross-language conformance fixtures against the
 Rust and TypeScript implementations.
+
+## Benchmark (baseline)
+
+The current implementation is a correctness prototype; these are the day-one baseline numbers the
+optimization work is measured against. `requestServer`/`requestClient`, both on the same 2-core
+Linux box, localhost, release, 64 B, request/response round-trips:
+
+| Layer | 50 conns |
+|---|---|
+| msgtrans req/resp (io_uring) | 54,010 req/s |
+| msgtrans req/resp (epoll) | 52,061 req/s |
+| raw neton-io echo (io_uring), for reference | ~78,000 req/s |
+
+So the actor + wire layer costs ~30% over a raw byte echo — the budget to reclaim. Known cost
+sources on the hot path: a `CompletableDeferred` per request, two channel hops (request queue +
+outbound mailbox), `Packet`/`ByteArray` allocations, and three coroutines per connection. At 200
+connections the current model does not complete the run cleanly — a scalability item to fix.
+
+The optimization is benchmark-driven (see SPEC): compare the coroutine model against a
+reactor-driven connection state machine, cut allocations and channel hops, then scale to
+multiple reactors — targeting gnet/ntex-class throughput.
