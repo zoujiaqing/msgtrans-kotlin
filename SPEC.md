@@ -204,7 +204,7 @@ connection scope), `close`.
 
 | Stage | Item |
 |---|---|
-| v0 (done) | wire-exact codec; actor Connection; request/response, one-way events (`events(): Flow`), server push; over TCP on macOS and Linux (io_uring default) |
+| v0 (done) | wire-exact codec; Connection session with the contracts; request/response (timeouts, in-flight cap), one-way events, server push; over TCP; suite verified on macOS (kqueue) and Linux (io_uring/epoll, 2026-09-13) |
 | v1 | request timeout (needs a reactor timer); the Diagnostic plane (send confirmations); connection registry / broadcast on the server |
 | v1.5 | WebSocket transport; payload compression (Zstd/Zlib); ext-header / route tag |
 | v2 | declarative `@MsgRpc` + KSP-generated client stub / server dispatcher / route ids |
@@ -227,7 +227,10 @@ belongs to neton-io and is out of scope here; see the neton-io SPEC.
 
 - **Conformance**: the Kotlin codec must produce and accept the exact bytes defined by
   `WIRE_FORMAT.md`; a shared fixture suite (with the Rust and TypeScript implementations) is the
-  acceptance gate for the wire.
+  acceptance gate for the wire. Status (2026-09-13): the codec is unit-tested against the byte
+  layout, and the transport passes its suite on macOS (kqueue) and Linux (io_uring/epoll, incl.
+  SQ depth 8) — see the READMEs. **Cross-language interop against Rust/TS is not yet verified**
+  (no shared cross-impl fixture has been run); it stays the open acceptance gate.
 - **Benchmark (benchmark-driven; harness in `bench/`)**: the current three-coroutine + Channel
   implementation is a correctness prototype, not the performance architecture. The benchmark is
   the arbiter. The harness (`benchServer`/`benchClient`, `bench/run.sh`, see `bench/README.md`)

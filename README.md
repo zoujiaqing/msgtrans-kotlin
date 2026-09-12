@@ -105,13 +105,21 @@ Wire-exact Packet codec (verified against the exact byte layout) and the transpo
 (request/response with timeouts and an in-flight cap, one-way events, server push) with the
 contracts above. Request timeouts use the neton-io reactor timer.
 
-Verified: macOS (kqueue) — full transport suite including the contract tests. Linux (epoll /
-io_uring): the test binary cross-compiles; **not run on a Linux host in this round** — the
-io_uring buffer-lifecycle and threading paths are pending real Linux verification (see the
-neton-io SPEC).
+Verified (2026-09-13), reproducible: `msgtrans-transport:linuxX64Test` — 14 cases (ContractTest 8,
+RequestResponse 4, WriteMode 2) — passes with 0 failures on a Rocky Linux 9.8 / kernel 5.14 /
+x86_64 host under **io_uring, epoll, and io_uring at SQ depth 8** (Kotlin 2.4.0, Gradle 8.14.2,
+JDK 17); `msgtrans-core` too; macOS (kqueue) passes the same cases. This is test-case pass over the
+contracts (dual call entry incl. a request issued from another thread, timeout incl. the in-flight
+slot wait, terminal-state cleanup, backpressure, the transport binding, requestOrNull), not a
+guarantee of every path or of scalability/tail-latency/memory behaviour under sustained load.
 
-Next: compression (Zstd/Zlib payloads), WebSocket transport, the ext-header/route-tag path, and
-shared cross-language conformance fixtures against the Rust and TypeScript implementations.
+Not yet verified: **cross-language wire interop** with the Rust and TypeScript implementations
+(the codec is unit-tested against the byte layout, but no shared cross-impl fixture has been run).
+API surface and toolchain boundary are recorded above for the actually-supported range (TCP only;
+WebSocket/QUIC are declared but unimplemented).
+
+Next: cross-language conformance fixtures against Rust/TS; compression (Zstd/Zlib payloads);
+WebSocket transport; the ext-header/route-tag path.
 
 ## Benchmark
 
