@@ -212,6 +212,20 @@ belongs to neton-io and is out of scope here; see the neton-io SPEC.
 - **Conformance**: the Kotlin codec must produce and accept the exact bytes defined by
   `WIRE_FORMAT.md`; a shared fixture suite (with the Rust and TypeScript implementations) is the
   acceptance gate for the wire.
-- **Benchmark**: msgtrans-kotlin and msgtrans (Rust) will be benchmarked against each other on
-  the same host — request/response throughput and p99 — over the same wire, to quantify the cost
-  of the Kotlin/Native + coroutine actor model versus the Rust actor model.
+- **Benchmark (day-one baseline, benchmark-driven)**: the current three-coroutine + Channel
+  implementation is a correctness prototype, not the performance architecture. The benchmark is
+  the arbiter. Baseline on a 2-core Linux box, 50 conns, 64 B, request/response: msgtrans ~54k
+  req/s (io_uring) vs raw neton-io echo ~78k, i.e. the actor+wire layer costs ~30%. At 200 conns
+  the current model does not complete cleanly (a scalability item).
+- **Two layers**: neton-io raw echo vs gnet/ntex; msgtrans req/resp vs Rust msgtrans — same wire,
+  same request semantics.
+- **Execution-model comparison (open)**: measure the three-coroutine model against a
+  reactor-driven connection state machine (no per-connection coroutines; suspend only when an
+  operation must block), and keep whichever the data favors. Cost to drive down per message: queue
+  hops, object allocations (`CompletableDeferred`, `Packet`), payload copies, coroutine resumes,
+  syscalls, cross-thread touches.
+- **Objective**: max throughput under a stated tail-latency and memory bound (not raw throughput
+  via unbounded backlog / oversized batches); record p99/p999, allocations, RSS, GC pauses, and
+  slow-consumer behavior alongside throughput.
+- **Contracts stay, implementation is replaceable**: request cancellation, length limits, buffer
+  release, close behavior and backpressure hold across any execution-model change.
