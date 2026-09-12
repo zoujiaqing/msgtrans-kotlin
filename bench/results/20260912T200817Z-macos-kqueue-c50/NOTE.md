@@ -1,0 +1,1 @@
+Host load average 11-26 on 10 cores from unrelated sessions (IDEs, other builds). c50 was tight; c200 rpc and c500 raw collapsed with both processes mostly idle (client cpu 0.26-0.38), i.e. scheduling noise, not a protocol effect - confirmed by the *-rerun directories at load ~7.5 where the same configs are tight. Do not use the c200/c500 numbers from this directory.

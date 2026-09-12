@@ -1,0 +1,1 @@
+Host load average ~7.5 on 10 cores from persistent unrelated processes (Qoder/Zed IDEs, a runaway zsh); this was the quietest window available. Runs are tight (min..max within ~5-10%) and are the same-host reference used in README.md. Still same-host: client and server share CPU and the loopback stack.

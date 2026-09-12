@@ -212,11 +212,26 @@ belongs to neton-io and is out of scope here; see the neton-io SPEC.
 - **Conformance**: the Kotlin codec must produce and accept the exact bytes defined by
   `WIRE_FORMAT.md`; a shared fixture suite (with the Rust and TypeScript implementations) is the
   acceptance gate for the wire.
-- **Benchmark (day-one baseline, benchmark-driven)**: the current three-coroutine + Channel
+- **Benchmark (benchmark-driven; harness in `bench/`)**: the current three-coroutine + Channel
   implementation is a correctness prototype, not the performance architecture. The benchmark is
-  the arbiter. Baseline on a 2-core Linux box, 50 conns, 64 B, request/response: msgtrans ~54k
-  req/s (io_uring) vs raw neton-io echo ~78k, i.e. the actor+wire layer costs ~30%. At 200 conns
-  the current model does not complete cleanly (a scalability item).
+  the arbiter. The harness (`benchServer`/`benchClient`, `bench/run.sh`, see `bench/README.md`)
+  measures three comparable layers with identical connection count, payload and one outstanding
+  request per connection, with connect / warmup / measure / exit timed separately, every response
+  validated (type, id, bizType, payload — failures are counted, never as throughput), a watchdog
+  instead of unsafe cancellation, and raw JSON + run metadata (host, load, driver, SQ depth, git
+  revisions, binary checksums) stored per run:
+  - `raw` — neton-io byte echo (reactor + stream cost);
+  - `framed` — the msgtrans wire over neton-io `Framed`/`serve`, Response echoing the Request's id,
+    no actor machinery (adds header bytes + encode/decode + `Packet` allocation);
+  - `rpc` — the full `Connection` actor (adds pending registry, `CompletableDeferred`, request queue,
+    outbound mailbox, three coroutines per connection).
+  The gap between two adjacent layers is the **combined** cost of what that layer adds; it locates
+  cost, it does not attribute it to a particular queue or object — that needs a controlled A/B with
+  everything else fixed. Results and their limitations live in `bench/results/` and the README.
+  History: an earlier "does not complete at 200 connections" observation was an io_uring SQ-ring
+  overflow in neton-io (fixed there in 7077c92/8667675; the previous engineer reports the 400-conn
+  regression passing at ring depth 4/8 — that report has not been re-run here). The current model
+  runs at 500 connections in this harness; scalability beyond that is untested.
 - **Two layers**: neton-io raw echo vs gnet/ntex; msgtrans req/resp vs Rust msgtrans — same wire,
   same request semantics.
 - **Execution-model comparison (open)**: measure the three-coroutine model against a

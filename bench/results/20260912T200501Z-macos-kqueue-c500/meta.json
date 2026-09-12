@@ -1,0 +1,19 @@
+{
+  "timestamp_utc": "20260912T200501Z",
+  "label": "macos-kqueue-c500",
+  "topology": "same-host (server and client share CPU, memory and the loopback stack)",
+  "host": {"os": "Darwin 25.2.0", "arch": "arm64", "cpu": "Apple M1 Pro", "ncpu": 10},
+  "versions": {
+    "msgtrans-kotlin": "c707a55-dirty",
+    "neton-io": "8667675-dirty",
+    "kotlin": "2.4.0",
+    "build_type": "release",
+    "target": "macosArm64",
+    "benchServer_sha256": "d032c16ae5b37152799258363c2ed94dcaa455413af1ac297259fdfc57553d98",
+    "benchClient_sha256": "fc658bd4b3adafffd2a6ab919a9b068d3bed85bbfb4393fd978bfc6b758c71bc"
+  },
+  "params": {"modes": "raw,framed,rpc", "connections": 500, "payload_bytes": 64, "inflight_per_connection": 1,
+             "warmup_s": 2, "duration_s": 5, "repeat": 3, "timeout_s": 10, "port": 9000,
+             "client_host": "127.0.0.1"},
+  "env": {"NETON_IO_DRIVER": "", "NETON_IO_URING_DEPTH": ""}
+}

@@ -1,0 +1,10 @@
+{
+  "status": "ok",
+  "message": null,
+  "config": {"mode": "framed", "label": "macos-kqueue-c50", "host": "127.0.0.1", "port": 9000, "connections": 50, "payload_bytes": 64, "inflight_per_connection": 1, "warmup_s": 2.0, "duration_s": 5.0, "timeout_s": 10.0, "connect_timeout_s": 30.0, "exit_timeout_s": 10.0},
+  "env": {"NETON_IO_DRIVER": null, "NETON_IO_URING_DEPTH": null},
+  "phases_ms": {"connect": 3.544, "warmup": 2000.0, "measure_window": 5000.412, "measure_overrun": 0.412, "exit": 0.418, "total": 7003.971},
+  "progress": {"connected": 50, "finished": 50, "phase": "done"},
+  "results": {"warmup_requests": 178502, "measured_requests": 516636, "throughput_req_s": 103318.6, "latency_us": {"mean": 483.794, "min": 22.834, "p50": 466.943, "p90": 573.439, "p99": 720.895, "p999": 1245.183, "max": 3017.167, "resolution": "log-linear, 32 buckets per octave (~3%)"}, "errors": {}, "error_samples": []},
+  "client_resources": {"user_cpu_s": 1.207991, "sys_cpu_s": 5.520512, "cpu_utilization": 0.96, "max_rss_bytes": 18137088, "note": "getrusage(RUSAGE_SELF) over the whole client process lifetime; server resources are sampled by the runner"}
+}

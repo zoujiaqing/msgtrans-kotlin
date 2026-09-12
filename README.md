@@ -68,24 +68,41 @@ Next: compression (Zstd/Zlib payloads), WebSocket transport, request timeouts (n
 timer), the ext-header/route-tag path, and shared cross-language conformance fixtures against the
 Rust and TypeScript implementations.
 
-## Benchmark (baseline)
+## Benchmark
 
-The current implementation is a correctness prototype; these are the day-one baseline numbers the
-optimization work is measured against. `requestServer`/`requestClient`, both on the same 2-core
-Linux box, localhost, release, 64 B, request/response round-trips:
+`bench/run.sh` measures three comparable layers with one harness (`bench/README.md`): `raw`
+(neton-io byte echo), `framed` (msgtrans wire over neton-io `Framed`/`serve`, no actor) and `rpc`
+(the full `Connection` actor). Same connection count, same payload, one outstanding request per
+connection; connect / warmup / measure / exit are timed separately; every response is validated and
+a failure is counted as an error, never as throughput. Raw results plus host, load, driver, git
+revisions and binary checksums are stored under `bench/results/<stamp>-<label>/`.
 
-| driver | 50 conns | 200 conns | 500 conns |
-|---|---|---|---|
-| msgtrans req/resp (io_uring) | 54,010 | 46,356 | 40,545 req/s |
-| msgtrans req/resp (epoll) | 52,061 | 48,169 | — req/s |
-| raw neton-io echo (io_uring), for reference | ~78,000 | — | — req/s |
+Same-host macOS kqueue (Apple M1 Pro, release, 64 B, 1 in-flight/conn, 3 repeats, median):
 
-So the actor + wire layer costs ~30% over a raw byte echo — the budget to reclaim. Known cost
-sources on the hot path: a `CompletableDeferred` per request, two channel hops (request queue +
-outbound mailbox), `Packet`/`ByteArray` allocations, and three coroutines per connection.
+| conns | raw | framed | rpc | results dir |
+|---|---|---|---|---|
+| 50 | 106,712 req/s (p99 0.64 ms) | 97,452 (p99 1.05 ms) | 82,752 (p99 1.54 ms) | `20260912T202440Z-macos-kqueue-c50-rerun` |
+| 200 | 106,087 (p99 3.0 ms) | 98,931 (p99 4.1 ms) | 91,436 (p99 3.1 ms) | `20260912T202222Z-macos-kqueue-c200-rerun` |
+| 500 | 99,088 (p99 7.9 ms) | 96,429 (p99 9.2 ms) | 87,367 (p99 8.7 ms) | `20260912T202330Z-macos-kqueue-c500-rerun` |
 
-The model scales to hundreds of connections. (A ~200-connection stall first seen here turned out
-to be an io_uring SQ-ring overflow in neton-io, not the transport — epoll was unaffected; fixed.)
+All runs validated every response (0 errors, 0 timeouts). Server RSS at 500 connections: 47–57 MiB.
+
+Limitations: the host carried unrelated load throughout (load average ~7.5 on 10 cores during the
+`-rerun` directories, 11–43 during the earlier ones, whose 200/500-connection numbers collapsed from
+scheduling noise and are kept only with a `NOTE.md`). A single reactor thread in a 1-in-flight
+ping-pong is latency-bound, so any preemption shows up as a throughput collapse that looks like a
+protocol problem — check `load_avg_at_start` in `meta.json` before reading a directory. No Linux
+(epoll / io_uring) numbers were produced with this harness yet; the previous README table (Linux,
+`requestClient`) used a different client and is not comparable.
+
+What the gaps mean: `framed − raw` is the combined cost of the 16-byte header, encode/decode and
+`Packet` allocation; `rpc − framed` is the combined cost of the actor (pending registry,
+`CompletableDeferred`, request queue, outbound mailbox, three coroutines per connection). The gap
+locates cost; it does not attribute it to any single queue or object — that needs a controlled A/B.
+
+An earlier "does not complete at ~200 connections" observation was an io_uring SQ-ring overflow in
+neton-io (fixed there); the previous engineer reports the neton-io 400-connection regression passing
+at ring depth 4/8. That report has not been re-run here.
 
 The optimization is benchmark-driven (see SPEC): compare the coroutine model against a
 reactor-driven connection state machine, cut allocations and channel hops, then scale to

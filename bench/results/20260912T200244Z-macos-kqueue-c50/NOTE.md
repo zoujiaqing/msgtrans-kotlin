@@ -1,0 +1,1 @@
+CONTAMINATED: during this run another session on the same host was running Gradle (privchat-app) and rustc builds; load average was 20-33 on a 10-core machine. Numbers show the harness working end to end (all runs status ok, validation passed) but are not a usable baseline. See the later re-run.

@@ -61,7 +61,7 @@ OUT="$ROOT/bench/results/$STAMP${LABEL:+-$LABEL}"
 mkdir -p "$OUT"
 
 sha() { if command -v sha256sum >/dev/null; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
-gitinfo() { ( cd "$1" && printf '%s%s' "$(git rev-parse --short HEAD)" "$( [[ -n "$(git status --porcelain)" ]] && echo '-dirty' )" ); }
+gitinfo() { ( cd "$1" && printf '%s%s' "$(git rev-parse --short HEAD)" "$( [[ -n "$(git status --porcelain --untracked-files=no)" ]] && echo '-dirty' )" ); }
 cpu() { if [[ "$(uname -s)" == Darwin ]]; then sysctl -n machdep.cpu.brand_string; else grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | sed 's/^ //'; fi; }
 ncpu() { if [[ "$(uname -s)" == Darwin ]]; then sysctl -n hw.ncpu; else nproc; fi; }
 loadavg() { uptime | sed 's/.*load average[s]*: //'; }
