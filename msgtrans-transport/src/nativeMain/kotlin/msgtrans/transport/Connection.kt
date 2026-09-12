@@ -155,7 +155,13 @@ class Connection internal constructor(
     private var writeJob: Job? = null
     private var handlerJob: Job? = null
 
-    /** Set the handler that answers inbound requests. */
+    /**
+     * Set the handler that answers inbound requests. It runs on the reactor thread, serialized per
+     * connection and off the read path. "A slow handler stalls only its own connection" holds only
+     * for a handler that suspends and yields the thread: a **CPU-bound or blocking handler must
+     * offload explicitly** (e.g. `withContext(Dispatchers.Default) { … }`), or it blocks the whole
+     * reactor — the task budget bounds queue draining, not time spent inside one handler call.
+     */
     fun onRequest(handler: suspend (payload: ByteArray, bizType: Int) -> ByteArray) {
         requestHandler = handler
     }
