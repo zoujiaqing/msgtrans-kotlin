@@ -1,0 +1,11 @@
+{
+  "status": "ok",
+  "message": null,
+  "config": {"mode": "rpc", "label": "postcontract-c200", "host": "127.0.0.1", "port": 9000, "connections": 200, "payload_bytes": 64, "inflight_per_connection": 1, "warmup_s": 2.0, "duration_s": 5.0, "timeout_s": 10.0, "connect_timeout_s": 30.0, "exit_timeout_s": 10.0},
+  "env": {"NETON_IO_DRIVER": null, "NETON_IO_URING_DEPTH": null},
+  "phases_ms": {"connect": 35.271, "warmup": 2000.0, "measure_window": 5019.638, "measure_overrun": 19.638, "exit": 20.282, "total": 7055.569},
+  "progress": {"connected": 200, "finished": 200, "phase": "done", "per_connection_measured": {"min": 1899, "max": 1900, "zero": 0}, "started_at_utc": 1789250540},
+  "results": {"warmup_requests": 156220, "measured_requests": 379988, "throughput_req_s": 75700.2, "latency_us": {"mean": 2635.091, "min": 1937.75, "p50": 2555.903, "p90": 3145.727, "p99": 4587.519, "p999": 19922.943, "max": 28669.209, "resolution": "log-linear, 32 buckets per octave (~3%)"}, "errors": {}, "error_samples": []},
+  "client_resources": {"user_cpu_s": 2.546418, "sys_cpu_s": 4.444163, "cpu_utilization": 0.99, "max_rss_bytes": 31768576, "note": "getrusage(RUSAGE_SELF) over the whole client process lifetime; server resources are sampled by the runner"}
+}
+

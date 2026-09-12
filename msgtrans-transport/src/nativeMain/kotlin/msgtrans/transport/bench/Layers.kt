@@ -6,6 +6,8 @@ import msgtrans.core.PacketCodec
 import msgtrans.core.PacketType
 import msgtrans.transport.Connection
 import msgtrans.transport.ConnectionClosedException
+import msgtrans.transport.ConnectionConfig
+import kotlinx.cinterop.toKString
 import msgtrans.transport.Transport
 import neton.io.bytes.Buffer
 import neton.io.core.Framed
@@ -167,7 +169,8 @@ object RpcLayer : BenchLayer {
     override val name get() = "rpc"
 
     override suspend fun open(scope: CoroutineScope, cfg: BenchConfig): BenchConn =
-        RpcConn(Transport.connect(scope, cfg.host, cfg.port), cfg.payload)
+        RpcConn(Transport.connect(scope, cfg.host, cfg.port,
+            ConnectionConfig(requestTimeoutMillis = rpcTimeoutMs())), cfg.payload)
 
     suspend fun serve(scope: CoroutineScope, host: String, port: Int) {
         val server = Transport.bind(scope, host, port) { conn ->
@@ -197,6 +200,11 @@ private class RpcConn(private val conn: Connection, private val payload: ByteArr
     // cancels anything; this is the layer's own contract being exercised in the exit phase.
     override suspend fun close() = conn.close()
 }
+
+/** Per-request timeout for the rpc layer, MSGTRANS_REQUEST_TIMEOUT_MS (default 30000; 0 = off). */
+@kotlin.OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+private fun rpcTimeoutMs(): Long =
+    platform.posix.getenv("MSGTRANS_REQUEST_TIMEOUT_MS")?.toKString()?.toLongOrNull() ?: 30_000L
 
 fun layerFor(mode: String): BenchLayer = when (mode) {
     "raw" -> RawLayer

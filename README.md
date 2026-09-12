@@ -170,6 +170,20 @@ on poll count, throughput and tail latency; arm-once / edge-triggered is a separ
 because it changes the event contract. B2 remains a candidate if a profile shows user-space
 dominating.
 
+**Cost of the request-timeout contract** (`MSGTRANS_REQUEST_TIMEOUT_MS`, dir
+`20260912T220422Z-rpc-timeout-cost-c50`, 6 interleaved repeats, host load ~9): wrapping every
+request in `withTimeout` (default 30s) costs about 12% throughput and raises p99.
+
+| rpc, 50 conns | timeout off | timeout 30s (default) |
+|---|---|---|
+| throughput req/s (median) | 90,040 | 79,202 |
+| p99 (us) | 999 | 1,475 |
+
+The timeout is on by default because "a request cannot wait forever" is a contract. The cost is
+the per-request timer + coroutine that `withTimeout` builds; a cheaper mechanism (one deadline
+registered directly, or a coarse per-connection sweep) is the next measured single-variable
+experiment. The knob lets an application trade the guarantee for throughput explicitly.
+
 **Reactor counters and the task-budget experiment** (`NETON_IO_STATS=1`, `NETON_IO_TASK_BUDGET`;
 dirs `20260912T211609Z-stats-overhead-c50`, `…-budget-c50-stats`, `…-budget-c200-stats`, host load
 17–82 during these runs, so only the counters and the interleaved pairs are meaningful):

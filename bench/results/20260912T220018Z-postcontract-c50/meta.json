@@ -1,0 +1,21 @@
+{
+  "timestamp_utc": "20260912T220018Z",
+  "label": "postcontract-c50",
+  "topology": "same-host (server and client share CPU, memory and the loopback stack)",
+  "host": {"os": "Darwin 25.2.0", "arch": "arm64", "cpu": "Apple M1 Pro", "ncpu": 10,
+           "load_avg_at_start": "8.56 8.32 9.38", "note": "compare load_avg with ncpu: other work on the host contaminates same-host results"},
+  "versions": {
+    "msgtrans-kotlin": "f257735",
+    "neton-io": "033a979",
+    "kotlin": "2.4.0",
+    "build_type": "release",
+    "target": "macosArm64",
+    "benchServer_sha256": "b215e3cf36390708e001278bd10c5ed8c245d30ad08b7352ecbe59559a4a8e94",
+    "benchClient_sha256": "b49f6de6b63e64b975a971ff39958fd53b0943a82eb6491a48e2a46dc83433e6"
+  },
+  "params": {"modes": "raw,framed,rpc", "connections": 50, "payload_bytes": 64, "inflight_per_connection": 1,
+             "warmup_s": 2, "duration_s": 5, "repeat": 3, "timeout_s": 10, "port": 9000,
+             "client_host": "127.0.0.1"},
+  "env": {"NETON_IO_DRIVER": "", "NETON_IO_URING_DEPTH": ""},
+  "ab": ""
+}
