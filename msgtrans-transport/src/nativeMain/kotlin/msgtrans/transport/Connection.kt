@@ -11,10 +11,13 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.Delay
+import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.withTimeout
+import kotlin.coroutines.ContinuationInterceptor
+import kotlin.coroutines.coroutineContext
 import msgtrans.core.Packet
 import msgtrans.core.PacketCodec
 import msgtrans.core.PacketType
@@ -264,15 +267,24 @@ class Connection internal constructor(
         val id = nextRequestId()
         val deferred = CompletableDeferred<Packet>()
         pending[id] = deferred
+        // Register one deadline directly on the reactor timer (cheaper than withTimeout, which
+        // builds a TimeoutCoroutine per call): on expiry, fail this request's deferred and free
+        // its slot. Disposed on any completion. The callback runs on the reactor thread.
+        val deadline: DisposableHandle? = if (timeoutMillis > 0) {
+            @OptIn(InternalCoroutinesApi::class)
+            (coroutineContext[ContinuationInterceptor] as Delay).invokeOnTimeout(timeoutMillis, {
+                if (pending.remove(id) != null) {
+                    deferred.completeExceptionally(RequestTimeoutException(id, timeoutMillis))
+                    wakeOneInFlightWaiter()
+                }
+            }, coroutineContext)
+        } else null
         try {
             enqueue(Packet.request(payload, bizType, id))
-            val response = if (timeoutMillis > 0) {
-                try { withTimeout(timeoutMillis) { deferred.await() } }
-                catch (e: TimeoutCancellationException) { throw RequestTimeoutException(id, timeoutMillis) }
-            } else deferred.await()
-            return response.payload
+            return deferred.await().payload
         } finally {
-            if (pending.remove(id) != null) wakeOneInFlightWaiter() // timeout/cancel/error path
+            deadline?.dispose()
+            if (pending.remove(id) != null) wakeOneInFlightWaiter() // cancel/error path
         }
     }
 

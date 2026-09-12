@@ -1,0 +1,21 @@
+{
+  "timestamp_utc": "20260912T220833Z",
+  "label": "rpc-timeout-cheap-c50",
+  "topology": "same-host (server and client share CPU, memory and the loopback stack)",
+  "host": {"os": "Darwin 25.2.0", "arch": "arm64", "cpu": "Apple M1 Pro", "ncpu": 10,
+           "load_avg_at_start": "9.90 9.75 9.81", "note": "compare load_avg with ncpu: other work on the host contaminates same-host results"},
+  "versions": {
+    "msgtrans-kotlin": "6d66094-dirty",
+    "neton-io": "033a979",
+    "kotlin": "2.4.0",
+    "build_type": "release",
+    "target": "macosArm64",
+    "benchServer_sha256": "5070db6e5df876e10d66f9b730aa898bb1624d3a0cf181a4c1ea8860886c3f06",
+    "benchClient_sha256": "0d18c7068782d5d03ddbad5e6063f45065184d09e9172fb56639a6e7b2796c7f"
+  },
+  "params": {"modes": "rpc", "connections": 50, "payload_bytes": 64, "inflight_per_connection": 1,
+             "warmup_s": 2, "duration_s": 5, "repeat": 6, "timeout_s": 10, "port": 9000,
+             "client_host": "127.0.0.1"},
+  "env": {"NETON_IO_DRIVER": "", "NETON_IO_URING_DEPTH": ""},
+  "ab": "MSGTRANS_REQUEST_TIMEOUT_MS=0,30000"
+}

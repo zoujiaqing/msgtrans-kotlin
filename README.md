@@ -179,10 +179,18 @@ request in `withTimeout` (default 30s) costs about 12% throughput and raises p99
 | throughput req/s (median) | 90,040 | 79,202 |
 | p99 (us) | 999 | 1,475 |
 
-The timeout is on by default because "a request cannot wait forever" is a contract. The cost is
-the per-request timer + coroutine that `withTimeout` builds; a cheaper mechanism (one deadline
-registered directly, or a coarse per-connection sweep) is the next measured single-variable
-experiment. The knob lets an application trade the guarantee for throughput explicitly.
+The timeout is on by default because "a request cannot wait forever" is a contract. It first
+used `withTimeout` (a TimeoutCoroutine per request); replacing that with one deadline registered
+directly on the reactor timer closed the gap to within the run-to-run spread:
+
+| rpc, 50 conns | timeout off | timeout 30s |
+|---|---|---|
+| withTimeout (old) | 90,040 | 79,202 |
+| direct deadline (now) | 84,612 | 83,821 |
+
+(`20260912T220833Z-rpc-timeout-cheap-c50`; rpc-0 vs the earlier run differs by host-load noise, but
+the on-vs-off gap is what the interleaved pair isolates.) The knob still lets an application drop
+the guarantee explicitly.
 
 **Reactor counters and the task-budget experiment** (`NETON_IO_STATS=1`, `NETON_IO_TASK_BUDGET`;
 dirs `20260912T211609Z-stats-overhead-c50`, `…-budget-c50-stats`, `…-budget-c200-stats`, host load
