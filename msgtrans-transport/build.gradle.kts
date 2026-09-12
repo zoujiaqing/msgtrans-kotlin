@@ -4,8 +4,10 @@ kotlin {
     val nativeTargets = listOf(macosArm64(), macosX64(), linuxX64(), linuxArm64())
     nativeTargets.forEach { target ->
         target.binaries {
-            executable("requestServer") { entryPoint = "msgtrans.transport.requestServerMain" }
-            executable("requestClient") { entryPoint = "msgtrans.transport.requestClientMain" }
+            // Benchmark harness (bench/run.sh): one server and one client binary, mode-selected
+            // (raw | framed | rpc) so the three layers share identical harness code.
+            executable("benchServer") { entryPoint = "msgtrans.transport.bench.benchServerMain" }
+            executable("benchClient") { entryPoint = "msgtrans.transport.bench.benchClientMain" }
         }
     }
     sourceSets {
