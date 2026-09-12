@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  test:
+    name: test (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS kqueue
+            os: macos-14
+            task: macosArm64Test
+            driver: ""
+          - name: Linux epoll
+            os: ubuntu-latest
+            task: linuxX64Test
+            driver: ""
+          - name: Linux polling
+            os: ubuntu-latest
+            task: linuxX64Test
+            driver: polling
+          - name: Windows
+            os: windows-latest
+            task: mingwX64Test
+            driver: ""
+    runs-on: ${{ matrix.os }}
+    env:
+      NETON_IO_DRIVER: ${{ matrix.driver }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: msgtrans-kotlin
+      - name: Check out neton-io (I/O foundation)
+        uses: actions/checkout@v4
+        with:
+          repository: netonframework/neton-io
+          path: neton-io
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew ${{ matrix.task }} --no-daemon --stacktrace
+        working-directory: msgtrans-kotlin
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports-${{ matrix.name }}
+          path: 'msgtrans-kotlin/**/build/reports/tests/**'
+          if-no-files-found: ignore
