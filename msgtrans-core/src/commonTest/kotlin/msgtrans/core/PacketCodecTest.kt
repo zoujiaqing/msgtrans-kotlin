@@ -12,7 +12,7 @@ class PacketCodecTest {
     fun exactWireLayout() {
         val packet = Packet.request(payload = byteArrayOf('h'.code.toByte(), 'i'.code.toByte()), bizType = 100, messageId = 0x01020304u)
         val buf = Buffer()
-        PacketCodec.encode(packet, buf)
+        PacketCodec.Default.encode(packet, buf)
 
         val bytes = buf.peekAll()
         val expected = byteArrayOf(
@@ -41,9 +41,9 @@ class PacketCodecTest {
             reserved = Flags.HAS_ROUTE_TAG,
         )
         val buf = Buffer()
-        PacketCodec.encode(original, buf)
+        PacketCodec.Default.encode(original, buf)
 
-        val decoded = PacketCodec.decode(buf)!!
+        val decoded = PacketCodec.Default.decode(buf)!!
         assertEquals(PacketType.Response, decoded.type)
         assertEquals(0xFFFFFFFEu, decoded.messageId)
         assertEquals(7, decoded.bizType)
@@ -57,17 +57,17 @@ class PacketCodecTest {
     @Test
     fun needsMoreBytes() {
         val buf = Buffer()
-        PacketCodec.encode(Packet.oneWay("data".encodeToByteArray(), bizType = 1, messageId = 5u), buf)
+        PacketCodec.Default.encode(Packet.oneWay("data".encodeToByteArray(), bizType = 1, messageId = 5u), buf)
         // Chop the buffer to a partial packet: decode must return null, not throw or consume.
         val full = buf.readAll()
         val partial = Buffer()
         partial.writeBytes(full, 0, full.size - 2)
-        assertNull(PacketCodec.decode(partial))
+        assertNull(PacketCodec.Default.decode(partial))
         assertEquals(full.size - 2, partial.readableBytes) // untouched
 
         // Feeding the rest makes it decodable.
         partial.writeBytes(full, full.size - 2, 2)
-        val p = PacketCodec.decode(partial)!!
+        val p = PacketCodec.Default.decode(partial)!!
         assertEquals(PacketType.OneWay, p.type)
         assertContentEquals("data".encodeToByteArray(), p.payload)
     }
@@ -75,16 +75,16 @@ class PacketCodecTest {
     @Test
     fun multipleFramesBackToBack() {
         val buf = Buffer()
-        PacketCodec.encode(Packet.oneWay(byteArrayOf(1), 0, 1u), buf)
-        PacketCodec.encode(Packet.oneWay(byteArrayOf(2, 2), 0, 2u), buf)
-        PacketCodec.encode(Packet.oneWay(byteArrayOf(3, 3, 3), 0, 3u), buf)
+        PacketCodec.Default.encode(Packet.oneWay(byteArrayOf(1), 0, 1u), buf)
+        PacketCodec.Default.encode(Packet.oneWay(byteArrayOf(2, 2), 0, 2u), buf)
+        PacketCodec.Default.encode(Packet.oneWay(byteArrayOf(3, 3, 3), 0, 3u), buf)
 
-        val a = PacketCodec.decode(buf)!!
-        val b = PacketCodec.decode(buf)!!
-        val c = PacketCodec.decode(buf)!!
+        val a = PacketCodec.Default.decode(buf)!!
+        val b = PacketCodec.Default.decode(buf)!!
+        val c = PacketCodec.Default.decode(buf)!!
         assertEquals(1u, a.messageId)
         assertEquals(2u, b.messageId)
         assertEquals(3u, c.messageId)
-        assertNull(PacketCodec.decode(buf))
+        assertNull(PacketCodec.Default.decode(buf))
     }
 }

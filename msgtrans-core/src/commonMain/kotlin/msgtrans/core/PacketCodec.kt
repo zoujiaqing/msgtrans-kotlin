@@ -13,11 +13,23 @@ import neton.io.codec.Encoder
  *
  * v1 does not compress in-transport: [Compression] other than None is carried on the wire but
  * this codec does not de/compress the payload itself (that belongs to a higher layer).
+ *
+ * [maxPayloadLength] is per instance (a header claiming a larger payload is rejected before the
+ * bytes are buffered). It is a constructor value, not shared mutable state, so each connection
+ * bounds its own inbound frame size — the piece that makes a connection's inbound memory bound
+ * (queue depth × maxPayloadLength) meaningful. [Default] keeps the 64 MiB default for callers that
+ * do not care.
  */
-object PacketCodec : Decoder<Packet>, Encoder<Packet> {
-
+class PacketCodec(
     /** Reject a header claiming a payload larger than this before buffering it (overload guard). */
-    var maxPayloadLength: Long = 64L * 1024 * 1024
+    val maxPayloadLength: Long = DEFAULT_MAX_PAYLOAD,
+) : Decoder<Packet>, Encoder<Packet> {
+
+    companion object {
+        const val DEFAULT_MAX_PAYLOAD: Long = 64L * 1024 * 1024
+        /** Shared stateless default instance (encode/decode with the default limit). */
+        val Default = PacketCodec()
+    }
 
     override fun encode(item: Packet, out: Buffer) {
         out.writeByte(Packet.PROTOCOL_VERSION.toByte())
