@@ -1,44 +1,57 @@
 package msgtrans.transport
 
 import kotlinx.coroutines.CoroutineScope
-import neton.io.net.TcpListener
-import neton.io.net.connect as netConnect
-import neton.io.net.listen as netListen
 
-/** Entry points for opening connections. Everything runs inside a neton-io reactor. */
+/**
+ * Entry points for opening connections, over any [ClientTransport] / [ServerTransport]. Everything
+ * runs inside a neton-io reactor. The protocol is chosen by the transport; the session API
+ * (send / request / onRequest / events) is the same across protocols.
+ */
 object Transport {
 
-    /** Connect to [host]:[port] and start the connection actor. Set [Connection.onRequest] as needed. */
+    /** Connect over [transport] and start the connection actor. */
+    suspend fun connect(scope: CoroutineScope, transport: ClientTransport, config: ConnectionConfig = ConnectionConfig()): Connection =
+        Connection(transport.open(), scope, config).also { it.start() }
+
+    /** Convenience: connect over TCP. */
     suspend fun connect(scope: CoroutineScope, host: String, port: Int, config: ConnectionConfig = ConnectionConfig()): Connection =
-        Connection(netConnect(host, port), scope, config).also { it.start() }
+        connect(scope, TcpClientTransport(host, port), config)
 
     /**
-     * Bind a listener. [onConnection] configures each accepted connection synchronously before it
+     * Bind [transport]. [onConnection] configures each accepted connection synchronously before it
      * starts (set its request handler, launch event collection or a server push).
      */
+    suspend fun bind(
+        scope: CoroutineScope,
+        transport: ServerTransport,
+        config: ConnectionConfig = ConnectionConfig(),
+        onConnection: (Connection) -> Unit,
+    ): TransportServer = TransportServer(transport.listen(), scope, config, onConnection)
+
+    /** Convenience: bind over TCP. */
     suspend fun bind(
         scope: CoroutineScope,
         host: String,
         port: Int,
         config: ConnectionConfig = ConnectionConfig(),
         onConnection: (Connection) -> Unit,
-    ): TransportServer = TransportServer(netListen(host, port), scope, config, onConnection)
+    ): TransportServer = bind(scope, TcpServerTransport(host, port), config, onConnection)
 }
 
 /** A bound server. Each accepted connection becomes its own [Connection] actor. */
 class TransportServer internal constructor(
-    private val listener: TcpListener,
+    private val acceptor: ServerTransport.Acceptor,
     private val scope: CoroutineScope,
     private val config: ConnectionConfig,
     private val onConnection: (Connection) -> Unit,
 ) {
     suspend fun acceptLoop() {
         while (true) {
-            val conn = Connection(listener.accept(), scope, config)
+            val conn = Connection(acceptor.accept(), scope, config)
             onConnection(conn)
             conn.start()
         }
     }
 
-    fun close() = listener.close()
+    fun close() = acceptor.close()
 }

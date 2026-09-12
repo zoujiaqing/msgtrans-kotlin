@@ -163,4 +163,33 @@ class ContractTest {
         serverJob.cancelAndJoin()
         server.close()
     }
+    @Test
+    fun transportBindingAndRequestOrNull() = runReactor {
+        val port = 39526
+        // Bind and connect via the transport objects (the multi-protocol binding surface).
+        val server = Transport.bind(this, TcpServerTransport("127.0.0.1", port)) { conn ->
+            conn.onRequest { payload, _ -> payload }
+        }
+        val serverJob = launch { server.acceptLoop() }
+        val conn = Transport.connect(this, TcpClientTransport("127.0.0.1", port),
+            ConnectionConfig(requestTimeoutMillis = 2_000))
+        assertEquals("ok", conn.requestOrNull("ok".encodeToByteArray())!!.decodeToString())
+        conn.close()
+        serverJob.cancelAndJoin()
+        server.close()
+    }
+
+    @Test
+    fun requestOrNullReturnsNullOnTimeout() = runReactor {
+        val port = 39527
+        val server = Transport.bind(this, "127.0.0.1", port) { conn ->
+            conn.onRequest { _, _ -> CompletableDeferred<ByteArray>().await() }
+        }
+        val serverJob = launch { server.acceptLoop() }
+        val conn = Transport.connect(this, "127.0.0.1", port, ConnectionConfig(requestTimeoutMillis = 100))
+        assertEquals(null, conn.requestOrNull("q".encodeToByteArray()))
+        conn.close()
+        serverJob.cancelAndJoin()
+        server.close()
+    }
 }

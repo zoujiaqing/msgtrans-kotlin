@@ -56,25 +56,40 @@ repos until they are published with a stable ABI.
 ## Modules
 
 - `msgtrans-core` — `Packet`, `PacketCodec` (wire-exact, big-endian), types. All native targets.
-- `msgtrans-transport` — the actor `Connection`, `Transport` client/server, `SessionHandler`. Runs
-  on the neton-io reactor (Apple + Linux).
+- `msgtrans-transport` — the `Connection` session, `Transport` client/server, the `ClientTransport`/
+  `ServerTransport` protocol seam (TCP; WebSocket/QUIC declared). Runs on the neton-io reactor.
 
 ## Usage
 
+The API mirrors the Rust msgtrans surface: pick a transport, then use the same `send` / `request`
+over it. TCP is implemented; WebSocket and QUIC are declared binding points (`WebSocketClientTransport`,
+`QuicClientTransport`) so business code will not change when they land.
+
 ```kotlin
 runReactor {
-    val server = Transport.bind(this, "0.0.0.0", 9000) { conn ->
+    val server = Transport.bind(this, TcpServerTransport("0.0.0.0", 9000)) { conn ->
         conn.onRequest { payload, _ -> ("reply:" + payload.decodeToString()).encodeToByteArray() }
     }
     launch { server.acceptLoop() }
 
-    val conn = Transport.connect(this, "127.0.0.1", 9000,
+    val conn = Transport.connect(this, TcpClientTransport("127.0.0.1", 9000),
         ConnectionConfig(requestTimeoutMillis = 5_000, maxInFlightRequests = 256))
+
+    conn.send("hello".encodeToByteArray())                       // one-way
+
     val reply = conn.request("ping".encodeToByteArray(), bizType = 7)   // reply == "reply:ping"
-    // throws RequestTimeoutException if no response in time; ConnectionClosedException on close
+    // request throws RequestTimeoutException on timeout, ConnectionClosedException on close;
+    // requestOrNull returns null on timeout (mirrors Rust `request(...).data: Option`):
+    val data: ByteArray? = conn.requestOrNull("what time is it?".encodeToByteArray())
+    if (data != null) println(data.decodeToString()) else println("request timed out")
+
     conn.events().collect { msg -> /* inbound one-way / server push */ }
 }
 ```
+
+`Transport.connect(scope, host, port, …)` / `bind(scope, host, port, …)` remain as TCP
+conveniences. `Connection` is callable from any thread — a call off the owning reactor is posted to
+it — so a connection reference can be shared with worker threads safely.
 
 ## Build and test
 

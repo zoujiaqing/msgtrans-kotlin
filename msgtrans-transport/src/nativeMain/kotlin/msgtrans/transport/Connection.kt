@@ -331,6 +331,13 @@ class Connection internal constructor(
         next.slotCont?.let { it.resume(Unit); next.slotCont = null }
     }
 
+    /**
+     * Like [request] but returns null on timeout instead of throwing, mirroring msgtrans-rust's
+     * `request(...).data: Option<_>` (None = timed out). Connection failures still throw.
+     */
+    suspend fun requestOrNull(payload: ByteArray, bizType: Int = 0, timeoutMillis: Long = config.requestTimeoutMillis): ByteArray? =
+        try { request(payload, bizType, timeoutMillis) } catch (_: RequestTimeoutException) { null }
+
     /** Send a one-way message (no response expected). Runs on the owning reactor. */
     suspend fun send(payload: ByteArray, bizType: Int = 0): Unit = withContext(owner) {
         check(!closed) { "connection closed" }

@@ -170,6 +170,14 @@ Future modules: `msgtrans-rpc` (declarative `@MsgRpc` with KSP-generated stubs),
 
 ## 6. Public API (v1)
 
+Multi-protocol binding follows msgtrans-rust: a `ClientTransport` / `ServerTransport` chooses the
+protocol (TCP now; `WebSocketClientTransport` / `QuicClientTransport` are declared binding points),
+and the session API (`send`, `request`, `requestOrNull`, `onRequest`, `events`) is identical across
+protocols. `request` throws on timeout; `requestOrNull` returns null (mirrors the Rust
+`request(...).data: Option`). A `Connection` is callable from any thread (the call is posted to the
+owning reactor).
+
+
 ```kotlin
 runReactor {
     val server = Transport.bind(this, host, port) { conn ->
