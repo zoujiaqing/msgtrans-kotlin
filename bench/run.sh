@@ -18,17 +18,20 @@
 #   --port N                 server port (default 9000)
 #   --label TEXT             suffix for the results directory
 #   --host-client H          client connect host (default 127.0.0.1)
+#   --ab VAR=v1,v2           A/B: run each repeat once per value of env VAR, interleaved (e.g.
+#                            --ab MSGTRANS_WRITE_MODE=channel,inline); the tag becomes <mode>-<value>-<i>
 #   --no-build               skip the gradle build (use only with binaries you just built)
 set -euo pipefail
 
 MODES="raw,framed,rpc"; CONNS=50; PAYLOAD=64; WARMUP=2; DURATION=5; REPEAT=3; TIMEOUT=10
-DRIVER=""; DEPTH=""; PORT=9000; LABEL=""; BUILD=1; CLIENT_HOST=127.0.0.1
+DRIVER=""; DEPTH=""; PORT=9000; LABEL=""; BUILD=1; CLIENT_HOST=127.0.0.1; AB=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --modes) MODES="$2"; shift 2;; --conns) CONNS="$2"; shift 2;; --payload) PAYLOAD="$2"; shift 2;;
     --warmup) WARMUP="$2"; shift 2;; --duration) DURATION="$2"; shift 2;; --repeat) REPEAT="$2"; shift 2;;
     --timeout) TIMEOUT="$2"; shift 2;; --driver) DRIVER="$2"; shift 2;; --depth) DEPTH="$2"; shift 2;;
     --port) PORT="$2"; shift 2;; --label) LABEL="$2"; shift 2;; --host-client) CLIENT_HOST="$2"; shift 2;;
+    --ab) AB="$2"; shift 2;;
     --no-build) BUILD=0; shift;;
     -h|--help) sed -n '2,22p' "$0"; exit 0;;
     *) echo "unknown option $1" >&2; exit 64;;
@@ -85,7 +88,8 @@ cat > "$OUT/meta.json" <<JSON
   "params": {"modes": "$MODES", "connections": $CONNS, "payload_bytes": $PAYLOAD, "inflight_per_connection": 1,
              "warmup_s": $WARMUP, "duration_s": $DURATION, "repeat": $REPEAT, "timeout_s": $TIMEOUT, "port": $PORT,
              "client_host": "$CLIENT_HOST"},
-  "env": {"NETON_IO_DRIVER": "$DRIVER", "NETON_IO_URING_DEPTH": "$DEPTH"}
+  "env": {"NETON_IO_DRIVER": "$DRIVER", "NETON_IO_URING_DEPTH": "$DEPTH"},
+  "ab": "$AB"
 }
 JSON
 echo "== results: $OUT"; cat "$OUT/meta.json"
@@ -97,16 +101,20 @@ export NETON_IO_DRIVER="$DRIVER" NETON_IO_URING_DEPTH="$DEPTH"
 wait_port() { for _ in $(seq 1 100); do nc -z 127.0.0.1 "$1" 2>/dev/null && return 0; sleep 0.1; done; return 1; }
 
 FAILED=0
+AB_VAR=""; AB_VALUES=("")
+if [[ -n "$AB" ]]; then AB_VAR="${AB%%=*}"; IFS=',' read -ra AB_VALUES <<< "${AB#*=}"; fi
 IFS=',' read -ra MODE_LIST <<< "$MODES"
 for mode in "${MODE_LIST[@]}"; do
   for i in $(seq 1 "$REPEAT"); do
+  for ab in "${AB_VALUES[@]}"; do
     tag="$mode-$i"
+    if [[ -n "$AB_VAR" ]]; then tag="$mode-$ab-$i"; export "$AB_VAR=$ab"; fi
     "$SERVER" mode="$mode" host=0.0.0.0 port="$PORT" > "$OUT/server-$tag.log" 2>&1 &
     spid=$!
     if ! wait_port "$PORT"; then echo "server ($mode) did not come up" >&2; kill "$spid" 2>/dev/null || true; FAILED=1; continue; fi
     set +e
     "$CLIENT" mode="$mode" host="$CLIENT_HOST" port="$PORT" conns="$CONNS" payload="$PAYLOAD" \
-      warmup="$WARMUP" duration="$DURATION" timeout="$TIMEOUT" label="$LABEL" out="$OUT/run-$tag.json" \
+      warmup="$WARMUP" duration="$DURATION" timeout="$TIMEOUT" label="$LABEL${ab:+ $AB_VAR=$ab}" out="$OUT/run-$tag.json" \
       > "$OUT/client-$tag.log" 2>&1
     rc=$?
     set -e
@@ -119,6 +127,7 @@ for mode in "${MODE_LIST[@]}"; do
     echo "$tag: exit=$rc status=$status throughput=$thr req/s p99=${p99}us"
     [[ $rc -eq 0 ]] || FAILED=1
     sleep 0.5
+  done
   done
 done
 

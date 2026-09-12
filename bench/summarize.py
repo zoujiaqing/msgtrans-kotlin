@@ -34,7 +34,8 @@ def main():
         print()
         print("| mode | runs ok | throughput req/s median (min..max) | p50 us | p99 us | p999 us | max us | client cpu | per-conn min/max (worst run) | server rss / cpu time | errors |")
         print("|---|---|---|---|---|---|---|---|---|---|---|")
-        for mode in ("raw", "framed", "rpc"):
+        order = sorted(runs, key=lambda m: (["raw", "framed", "rpc"].index(m.split("-")[0]), m))
+        for mode in order:
             rs = runs.get(mode)
             if not rs: continue
             ok = [r for r in rs if r["status"] == "ok"]
