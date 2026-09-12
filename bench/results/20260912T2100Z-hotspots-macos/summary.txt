@@ -1,0 +1,9 @@
+server-framed: syscalls(recv+send+kevent)=2187 user=190 idle-threads=7414  syscall share of reactor=92%
+server-rpc: syscalls(recv+send+kevent)=2105 user=288 idle-threads=7474  syscall share of reactor=88%
+client-framed: syscalls(recv+send+kevent)=2181 user=194 idle-threads=12319  syscall share of reactor=92%
+client-rpc: syscalls(recv+send+kevent)=1998 user=341 idle-threads=12339  syscall share of reactor=85%
+server-framed kevent samples: 175
+server-rpc kevent samples: 365
+client-framed kevent samples: 165
+client-rpc kevent samples: 175
+note: 'user' sums only frames with >=5 samples (sample(1) collapses the rest), so user share is a lower bound; syscall share is therefore an upper bound

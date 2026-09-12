@@ -1,0 +1,21 @@
+{
+  "timestamp_utc": "20260912T205624Z",
+  "label": "ab-b1-c50",
+  "topology": "same-host (server and client share CPU, memory and the loopback stack)",
+  "host": {"os": "Darwin 25.2.0", "arch": "arm64", "cpu": "Apple M1 Pro", "ncpu": 10,
+           "load_avg_at_start": "12.57 21.44 17.42", "note": "compare load_avg with ncpu: other work on the host contaminates same-host results"},
+  "versions": {
+    "msgtrans-kotlin": "5a535ba",
+    "neton-io": "f32e685",
+    "kotlin": "2.4.0",
+    "build_type": "release",
+    "target": "macosArm64",
+    "benchServer_sha256": "454b166119fbb44069a339a374260c5248da2dc130de6b92a856414b4fff4eac",
+    "benchClient_sha256": "8d29c31adde9497487f11c224ab9f2fd0ba52624e02aa2365bf7926ae2c01974"
+  },
+  "params": {"modes": "rpc", "connections": 50, "payload_bytes": 64, "inflight_per_connection": 1,
+             "warmup_s": 2, "duration_s": 5, "repeat": 5, "timeout_s": 10, "port": 9000,
+             "client_host": "127.0.0.1"},
+  "env": {"NETON_IO_DRIVER": "", "NETON_IO_URING_DEPTH": ""},
+  "ab": "MSGTRANS_WRITE_MODE=channel,inline"
+}

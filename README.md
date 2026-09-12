@@ -110,6 +110,33 @@ An earlier "does not complete at ~200 connections" observation was an io_uring S
 neton-io (fixed there); the previous engineer reports the neton-io 400-connection regression passing
 at ring depth 4/8. That report has not been re-run here.
 
-The optimization is benchmark-driven (see SPEC): compare the coroutine model against a
-reactor-driven connection state machine, cut allocations and channel hops, then scale to
-multiple reactors — targeting gnet/ntex-class throughput.
+### Execution-model experiments
+
+Single-variable A/B runs, interleaved per repeat (`bench/run.sh --ab`), same host and cadence as above.
+
+**B1 — outbound path: bounded Channel + write coroutine (A) vs inline single-writer state machine
+(`MSGTRANS_WRITE_MODE=inline`).** Read loop, serial handler loop, pending registry and
+`CompletableDeferred` unchanged; one packet per socket write in both.
+
+| conns | A channel (5 runs, median, min..max) | B1 inline | dir |
+|---|---|---|---|
+| 50 | 91,139 (86,478..92,616) | 89,647 (84,287..92,483) | `20260912T205624Z-ab-b1-c50` |
+| 200 | 89,478 (79,897..92,470) | 89,063 (86,927..91,603) | `20260912T205740Z-ab-b1-c200` |
+
+Result: **no stable benefit** at 1 in-flight per connection; the difference is inside the run-to-run
+spread. B1 stays available behind `WriteMode` for other cadences (pipelined sends, many senders per
+connection) but is not adopted as default.
+
+**CPU hotspots** (`sample(1)`, `bench/results/20260912T2100Z-hotspots-macos/`): on this host the
+reactor thread spends most of its samples in `recvfrom`/`sendto`/`kevent`, one of each per request;
+Kotlin user code (codec, channels, continuations, allocator, GC) is the small remainder in both
+`framed` and `rpc`. `rpc` shows about twice the `kevent` samples of `framed`: the reactor loop polls
+with a zero timeout whenever dispatched tasks are pending, so each extra coroutine hop the actor adds
+becomes an extra `kevent` call. That points the next experiment at the reactor's poll/dispatch
+policy and syscall count (arm-once / edge-triggered, deferring the poll while runnable tasks remain,
+and io_uring on Linux) rather than at a user-space rewrite of the connection (B2). B2 remains a
+candidate if a Linux/io_uring profile disagrees.
+
+The optimization stays benchmark-driven (see SPEC): one variable per experiment, results kept under
+`bench/results/`, contracts (ordering, backpressure, cancellation, close) checked by tests in both
+variants.

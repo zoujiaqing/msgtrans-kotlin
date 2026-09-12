@@ -234,11 +234,17 @@ belongs to neton-io and is out of scope here; see the neton-io SPEC.
   runs at 500 connections in this harness; scalability beyond that is untested.
 - **Two layers**: neton-io raw echo vs gnet/ntex; msgtrans req/resp vs Rust msgtrans — same wire,
   same request semantics.
-- **Execution-model comparison (open)**: measure the three-coroutine model against a
-  reactor-driven connection state machine (no per-connection coroutines; suspend only when an
-  operation must block), and keep whichever the data favors. Cost to drive down per message: queue
-  hops, object allocations (`CompletableDeferred`, `Packet`), payload copies, coroutine resumes,
-  syscalls, cross-thread touches.
+- **Execution-model comparison (in progress, one variable at a time)**: the per-connection actor is
+  the correctness reference, not the required architecture. What must hold is single ownership of
+  connection state by the reactor thread, the handler off the read path, bounded backpressure, and
+  the cancellation/close contracts; mailbox and resident coroutines are implementation choices.
+  Done: B1 (outbound Channel + write coroutine vs inline single-writer, `WriteMode`) — no stable
+  benefit at 1 in-flight on macOS (README). Hotspots there put the reactor's syscalls
+  (recv/send/kevent per request) far above user-space cost; the actor's extra hops appear mostly
+  as extra kevent calls. Next: reactor poll/dispatch policy and syscall count (neton-io), Linux
+  io_uring profile; C (replace `CompletableDeferred` with a stored continuation) and B2 (callback
+  driven connection state machine, needs a neton-io interface that fits both readiness and
+  completion drivers) only when a profile says user-space is the bottleneck.
 - **Objective**: max throughput under a stated tail-latency and memory bound (not raw throughput
   via unbounded backlog / oversized batches); record p99/p999, allocations, RSS, GC pauses, and
   slow-consumer behavior alongside throughput.
