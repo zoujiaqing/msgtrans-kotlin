@@ -9,26 +9,49 @@ source of truth and cross-language conformance is the contract.
 
 ## Architecture
 
-Per-connection **actor**, following the msgtrans model:
+The **contracts** (stable) and the **current implementation** (replaceable) are kept separate on
+purpose, so the execution model can change without touching callers.
 
-- One connection is owned by its own coroutines with a **bounded outbound mailbox** — a read
-  loop that dispatches inbound packets and a write loop that drains the mailbox.
-- All connection state (the pending-request registry, the id counters) is touched only from
-  these coroutines on the single reactor thread, so it is serialized without locks. That is the
-  actor discipline realized with coroutines, not a mailbox-and-message framework.
-- Backpressure is **per-connection**: a slow handler or a full mailbox stalls only that
-  connection — there is no fan-out bus.
-- The request registry is the sole arbiter of "exactly one response per request". The request id
-  is per-session and monotonic; one-way messages use a separate counter.
+Contracts:
+- **Single ownership.** A connection and all its state (pending-request registry, id counters,
+  send queue) are owned by one reactor thread and touched only there — no locks. Calling a
+  connection's I/O from another thread is rejected, not silently raced.
+- **Handler off the read path.** Inbound requests are handled off the read loop, so a slow or
+  reentrant handler (e.g. one issuing a reverse request) never blocks response completion or
+  deadlocks.
+- **Finite everything.** The outbound queue is byte-bounded (senders suspend), in-flight requests
+  are count-bounded, and every request has a timeout. Memory cannot grow without bound; a request
+  cannot wait forever.
+- **One response per request.** The registry is the sole arbiter; the request id is per-session
+  and monotonic, one-way messages use a separate counter.
+- **Terminal states release once.** close, peer EOF, socket error, timeout and cancellation each
+  free the registry, queues and waiters exactly once (see the class doc on `Connection`).
+
+Current implementation (a per-connection actor with coroutines; may be replaced if a benchmark
+justifies it — the contracts above will not change):
 
 ```
-Connection (actor)
-├── read loop   → dispatch: Response → complete pending; Request → handler → reply; OneWay → handler
-├── write loop  → drain bounded mailbox → encode → socket
-└── registry    → messageId → pending response
+Connection
+├── read loop    → Response → complete pending; Request → handler queue; OneWay → events
+├── handler loop → drain request queue → onRequest → enqueue reply   (off the read path)
+├── write path   → CHANNEL: mailbox + write coroutine (default) | INLINE: single-writer (experiment)
+└── registry     → messageId → pending response (+ in-flight cap, timeouts)
         │
-   neton-io reactor (kqueue / epoll / poll)
+   neton-io reactor (kqueue / epoll / poll / io_uring), single thread
 ```
+
+## Public API and compatibility
+
+The public surface is `Transport`, `Connection`, `ConnectionConfig`, `Message`, the exceptions,
+and neton-io's `runReactor` / `IoStream` / `Buffer`. It deliberately exposes **no** file
+descriptor, `Channel`, `CompletableDeferred`, reactor or driver type, so the internal execution
+model and buffer implementation can be replaced without a source change for callers. `WriteMode`
+is an experimental performance knob and may change or disappear.
+
+Toolchain boundary: neton-io is consumed by msgtrans as a sibling `includeBuild` (source, not a
+published artifact), so both compile with the same Kotlin/Native version. KLIB binary
+compatibility across Kotlin versions is not guaranteed; pin one Kotlin version across the two
+repos until they are published with a stable ABI.
 
 ## Modules
 
@@ -45,8 +68,10 @@ runReactor {
     }
     launch { server.acceptLoop() }
 
-    val conn = Transport.connect(this, "127.0.0.1", 9000)
+    val conn = Transport.connect(this, "127.0.0.1", 9000,
+        ConnectionConfig(requestTimeoutMillis = 5_000, maxInFlightRequests = 256))
     val reply = conn.request("ping".encodeToByteArray(), bizType = 7)   // reply == "reply:ping"
+    // throws RequestTimeoutException if no response in time; ConnectionClosedException on close
     conn.events().collect { msg -> /* inbound one-way / server push */ }
 }
 ```
@@ -61,12 +86,17 @@ runReactor {
 
 ## Status
 
-P0: wire-exact Packet codec (verified against the exact byte layout) and the actor transport
-(request/response, one-way events, server push) pass on macOS (kqueue) and Linux (io_uring / epoll).
+Wire-exact Packet codec (verified against the exact byte layout) and the transport
+(request/response with timeouts and an in-flight cap, one-way events, server push) with the
+contracts above. Request timeouts use the neton-io reactor timer.
 
-Next: compression (Zstd/Zlib payloads), WebSocket transport, request timeouts (needs a reactor
-timer), the ext-header/route-tag path, and shared cross-language conformance fixtures against the
-Rust and TypeScript implementations.
+Verified: macOS (kqueue) — full transport suite including the contract tests. Linux (epoll /
+io_uring): the test binary cross-compiles; **not run on a Linux host in this round** — the
+io_uring buffer-lifecycle and threading paths are pending real Linux verification (see the
+neton-io SPEC).
+
+Next: compression (Zstd/Zlib payloads), WebSocket transport, the ext-header/route-tag path, and
+shared cross-language conformance fixtures against the Rust and TypeScript implementations.
 
 ## Benchmark
 

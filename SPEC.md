@@ -49,11 +49,19 @@ drift. A 16-byte big-endian fixed header, then an optional ext header, then the 
 
 ---
 
-## 3. Actor architecture (the core requirement)
+## 3. Connection model — contracts vs implementation
 
-Every connection is an **actor**: it is owned by its own coroutines, holds its own state, and
-processes work through a **bounded outbound mailbox**. This mirrors msgtrans-rust's
-per-connection actor model.
+The **contracts** below are stable; the per-connection **actor implementation** that currently
+realizes them is replaceable (an execution-model experiment may swap it — the benchmark decides —
+without changing these contracts). Contracts: single-thread ownership of connection state (§3.1),
+handler off the read path (§3), finite backpressure and timeouts (§3.4), one response per request
+(§4), and once-only terminal cleanup. What is *not* a contract: that there is a mailbox, a write
+coroutine, or three resident coroutines per connection.
+
+The current implementation makes every connection an **actor**: owned by its own coroutines,
+holding its own state, processing outbound work through a **bounded outbound mailbox** (or, behind
+`WriteMode.INLINE`, a single-writer state machine). This mirrors msgtrans-rust's per-connection
+actor model.
 
 ```
 Connection (actor)
