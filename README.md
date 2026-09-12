@@ -88,10 +88,16 @@ Same-host macOS kqueue (Apple M1 Pro, release, 64 B, 1 in-flight/conn, 3 repeats
 All runs validated every response (0 errors, 0 timeouts). Server RSS at 500 connections: 47–57 MiB.
 
 Limitations: the host carried unrelated load throughout (load average ~7.5 on 10 cores during the
-`-rerun` directories, 11–43 during the earlier ones, whose 200/500-connection numbers collapsed from
-scheduling noise and are kept only with a `NOTE.md`). A single reactor thread in a 1-in-flight
-ping-pong is latency-bound, so any preemption shows up as a throughput collapse that looks like a
-protocol problem — check `load_avg_at_start` in `meta.json` before reading a directory. No Linux
+`-rerun` directories, 11–43 during the earlier ones). In the earlier directories the 200-connection
+`rpc` and 500-connection `raw` runs collapsed with both processes mostly idle; host load is a
+plausible cause and the reruns were tight, but the cause is **not confirmed** (an idle-both-sides
+collapse is also what a wakeup/wait defect looks like). Those runs are kept with a `NOTE.md` as
+anomalous runs of unconfirmed cause; the harness now records per-connection progress so a stuck
+connection can be told from a global slowdown next time. Check `load_avg_at_start` in `meta.json`
+before reading any directory. What these numbers support: under this load and cadence (1 in-flight,
+not saturated) `rpc` throughput is below `framed` and the reported p99 values are close. They do not
+isolate the actor, the request table or client-side cost, and say nothing about tail latency near
+saturation. No Linux
 (epoll / io_uring) numbers were produced with this harness yet; the previous README table (Linux,
 `requestClient`) used a different client and is not comparable.
 

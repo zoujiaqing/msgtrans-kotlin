@@ -32,8 +32,8 @@ def main():
         print(f"- params: conns={p['connections']} payload={p['payload_bytes']}B inflight=1 warmup={p['warmup_s']}s duration={p['duration_s']}s repeat={p['repeat']}; "
               f"env NETON_IO_DRIVER={meta['env']['NETON_IO_DRIVER'] or '(default)'} NETON_IO_URING_DEPTH={meta['env']['NETON_IO_URING_DEPTH'] or '(default)'}")
         print()
-        print("| mode | runs ok | throughput req/s median (min..max) | p50 us | p99 us | p999 us | max us | client cpu | server rss / cpu time | errors |")
-        print("|---|---|---|---|---|---|---|---|---|---|")
+        print("| mode | runs ok | throughput req/s median (min..max) | p50 us | p99 us | p999 us | max us | client cpu | per-conn min/max (worst run) | server rss / cpu time | errors |")
+        print("|---|---|---|---|---|---|---|---|---|---|---|")
         for mode in ("raw", "framed", "rpc"):
             rs = runs.get(mode)
             if not rs: continue
@@ -47,8 +47,11 @@ def main():
             for r in rs:
                 if r["status"] != "ok": errs[r["status"]] = errs.get(r["status"], 0) + 1
                 for k, n in r["results"]["errors"].items(): errs[k] = errs.get(k, 0) + n
+            pcs = [r["progress"].get("per_connection_measured") for r in rs if r["progress"].get("per_connection_measured")]
+            worst = min(pcs, key=lambda x: x["min"]) if pcs else None
+            pc = f"{worst['min']}/{worst['max']}" + (f" (zero={worst['zero']})" if worst and worst["zero"] else "") if worst else "n/a"
             print(f"| {mode} | {len(ok)}/{len(rs)} | {med(thr):,.0f} ({min(thr) if thr else 0:,.0f}..{max(thr) if thr else 0:,.0f}) | "
-                  f"{lat('p50'):.1f} | {lat('p99'):.1f} | {lat('p999'):.1f} | {lat('max'):.1f} | {cpu:.2f} | {rss/1024:.0f} MiB / {ct} | {errs or '-'} |")
+                  f"{lat('p50'):.1f} | {lat('p99'):.1f} | {lat('p999'):.1f} | {lat('max'):.1f} | {cpu:.2f} | {pc} | {rss/1024:.0f} MiB / {ct} | {errs or '-'} |")
         print()
         print("Not collected: server-side allocation/GC counters, per-core utilization, packet counts; "
               "client CPU is getrusage over the whole process (all phases), server CPU/RSS is a single ps sample at run end.")

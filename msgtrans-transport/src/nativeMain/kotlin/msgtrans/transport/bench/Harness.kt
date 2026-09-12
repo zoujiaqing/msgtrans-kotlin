@@ -184,6 +184,9 @@ private class RunState(val cfg: BenchConfig) {
     val connected = AtomicInt(0)
     val finished = AtomicInt(0)
     val measuredTotal = AtomicLong(0)
+    /** Measured requests per connection; written on the reactor thread, read racily by the watchdog. */
+    val perConn = LongArray(cfg.connections)
+    val startedAtUtc: Long = platform.posix.time(null).toLong()
 
     // Reactor-thread-only state.
     val hist = LatencyHistogram()
@@ -305,6 +308,7 @@ private suspend fun runConnection(
             if (measuring) {
                 st.hist.record(t0.elapsedNow().inWholeNanoseconds)
                 measured++
+                st.perConn[idx] = measured
                 val done = st.now()
                 if (done > st.lastMeasuredCompletionAt) st.lastMeasuredCompletionAt = done
             } else {
@@ -340,9 +344,10 @@ private fun startWatchdog(st: RunState) {
                 else -> cfg.exitTimeout
             }
             if (inPhase > budget.inWholeNanoseconds) {
+                val prog = progressStats(st)
                 val msg = "watchdog: phase '${Phase.names[p]}' exceeded ${budget} " +
                     "(connected=${st.connected.load()}/${cfg.connections} finished=${st.finished.load()} " +
-                    "measured=${st.measuredTotal.load()})"
+                    "measured=${st.measuredTotal.load()} per-conn min=${prog.min} max=${prog.max} zero=${prog.zero})"
                 System_err(msg)
                 emitResult(cfg, resultJson(st, "timeout", msg, partial = true))
                 exitProcess(2)
@@ -380,6 +385,15 @@ private fun selfRusage(): Rusage = memScoped {
     val rss = ru.ru_maxrss.toLong()
     val bytes = if (Platform.osFamily == OsFamily.MACOSX || Platform.osFamily == OsFamily.IOS) rss else rss * 1024
     Rusage(user, sys, bytes)
+}
+
+private class ProgressStats(val min: Long, val max: Long, val zero: Int)
+
+/** Distribution of measured requests across connections: tells a global slowdown from stuck connections. */
+private fun progressStats(st: RunState): ProgressStats {
+    var min = Long.MAX_VALUE; var max = 0L; var zero = 0
+    for (v in st.perConn) { if (v < min) min = v; if (v > max) max = v; if (v == 0L) zero++ }
+    return ProgressStats(if (min == Long.MAX_VALUE) 0 else min, max, zero)
 }
 
 private fun jsonStr(s: String?): String =
@@ -430,10 +444,14 @@ private fun resultJson(st: RunState, status: String, message: String?, partial: 
     sb.append(", \"exit\": ").append(ms(if (st.allClosedAt > st.measureEndAt) st.allClosedAt - st.measureEndAt else Duration.ZERO))
     sb.append(", \"total\": ").append(ms(total))
     sb.append("},\n")
+    val prog = progressStats(st)
     sb.append("  \"progress\": {")
     sb.append("\"connected\": ").append(st.connected.load())
     sb.append(", \"finished\": ").append(st.finished.load())
     sb.append(", \"phase\": ").append(jsonStr(Phase.names[st.phase.load()]))
+    sb.append(", \"per_connection_measured\": {\"min\": ").append(prog.min).append(", \"max\": ").append(prog.max)
+    sb.append(", \"zero\": ").append(prog.zero).append("}")
+    sb.append(", \"started_at_utc\": ").append(st.startedAtUtc)
     sb.append("},\n")
     sb.append("  \"results\": {")
     sb.append("\"warmup_requests\": ").append(st.warmupRequests)
