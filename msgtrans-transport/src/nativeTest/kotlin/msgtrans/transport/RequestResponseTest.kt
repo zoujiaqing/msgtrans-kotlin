@@ -53,6 +53,30 @@ class RequestResponseTest {
     }
 
     @Test
+    fun reverseRequestDoesNotDeadlock() = runReactor {
+        val port = 39503
+        // The server handler answers by making a reverse request back to the client on the same
+        // connection. With an inline read loop this deadlocks; with the decoupled handler it works.
+        val server = Transport.bind(this, "127.0.0.1", port) { conn ->
+            conn.onRequest { payload, _ ->
+                val back = conn.request("who?".encodeToByteArray())
+                ("server-got:" + back.decodeToString()).encodeToByteArray()
+            }
+        }
+        val serverJob = launch { server.acceptLoop() }
+
+        val conn = Transport.connect(this, "127.0.0.1", port)
+        conn.onRequest { payload, _ -> ("client-saw:" + payload.decodeToString()).encodeToByteArray() }
+
+        val reply = conn.request("hi".encodeToByteArray())
+        assertEquals("server-got:client-saw:who?", reply.decodeToString())
+
+        conn.close()
+        serverJob.cancelAndJoin()
+        server.close()
+    }
+
+    @Test
     fun serverPush() = runReactor {
         val port = 39502
         val server = Transport.bind(this, "127.0.0.1", port) { conn ->

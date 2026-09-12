@@ -34,6 +34,7 @@ class Connection internal constructor(
     private val io = Io(stream)
     private val framed = Framed(io, PacketCodec, PacketCodec)
     private val outbound = Channel<Packet>(mailboxCapacity)
+    private val inboundRequests = Channel<Packet>(mailboxCapacity)
     private val inboundEvents = Channel<Message>(mailboxCapacity)
 
     private val pending = HashMap<UInt, CompletableDeferred<Packet>>()
@@ -44,6 +45,7 @@ class Connection internal constructor(
     private var closed = false
     private var readJob: Job? = null
     private var writeJob: Job? = null
+    private var handlerJob: Job? = null
 
     /** Set the handler that answers inbound requests. */
     fun onRequest(handler: suspend (payload: ByteArray, bizType: Int) -> ByteArray) {
@@ -58,6 +60,7 @@ class Connection internal constructor(
 
     internal fun start() {
         writeJob = scope.launch { writeLoop() }
+        handlerJob = scope.launch { handlerLoop() }
         readJob = scope.launch { readLoop() }
     }
 
@@ -65,20 +68,28 @@ class Connection internal constructor(
         for (packet in outbound) framed.send(packet)
     }
 
+    // The read loop never runs the business handler: it completes responses inline (so a reverse
+    // request or a pipelined response always advances) and hands requests to the handler loop.
     private suspend fun readLoop() {
         try {
             framed.incoming().collect { packet ->
                 when (packet.type) {
                     PacketType.Response -> pending.remove(packet.messageId)?.complete(packet)
-                    PacketType.Request -> {
-                        val response = requestHandler?.invoke(packet.payload, packet.bizType) ?: EMPTY
-                        outbound.send(Packet.response(response, packet.bizType, packet.messageId))
-                    }
+                    PacketType.Request -> inboundRequests.send(packet)
                     PacketType.OneWay -> inboundEvents.send(Message(packet.bizType, packet.payload))
                 }
             }
         } finally {
             shutdown()
+        }
+    }
+
+    // Handlers run here, serialized per connection but off the read path, so a slow or reentrant
+    // handler cannot block response completion or deadlock on its own reverse request.
+    private suspend fun handlerLoop() {
+        for (packet in inboundRequests) {
+            val response = requestHandler?.invoke(packet.payload, packet.bizType) ?: EMPTY
+            outbound.send(Packet.response(response, packet.bizType, packet.messageId))
         }
     }
 
@@ -104,6 +115,7 @@ class Connection internal constructor(
         if (closed) return
         closed = true
         outbound.close()
+        inboundRequests.close()
         inboundEvents.close()
         io.close()
         pending.values.forEach { it.completeExceptionally(ConnectionClosedException()) }
@@ -111,6 +123,7 @@ class Connection internal constructor(
         // A closed fd is not reliably reported by the reactor, so the loops must be cancelled.
         readJob?.cancel()
         writeJob?.cancel()
+        handlerJob?.cancel()
     }
 
     private fun nextRequestId(): UInt {

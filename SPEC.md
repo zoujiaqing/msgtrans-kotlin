@@ -57,15 +57,19 @@ per-connection actor model.
 
 ```
 Connection (actor)
-├── read loop   — decode inbound packets and dispatch:
-│                 Response  -> complete the pending request
-│                 Request   -> onRequest handler -> enqueue Response
-│                 OneWay    -> events() flow
-├── write loop  — drain the bounded outbound mailbox -> encode -> socket
-└── registry    — messageId -> pending response (sole arbiter of one-response-per-request)
+├── read loop    — decode; Response -> complete pending (inline); Request -> request queue; OneWay -> events()
+├── handler loop — drain the bounded request queue -> onRequest -> enqueue Response  (off the read path)
+├── write loop   — drain the bounded outbound mailbox -> encode -> socket
+└── registry     — messageId -> pending response (sole arbiter of one-response-per-request)
         │
    neton-io reactor (one thread; io_uring / epoll / kqueue)
 ```
+
+The read loop **never runs the business handler**. It completes responses inline and hands
+requests to a separate handler loop over a bounded queue. This is required: an inline handler
+that issues a reverse request on the same connection would deadlock (the read loop would be stuck
+in the handler and could never read the reverse response), and a slow handler would block response
+completion for the whole connection (head-of-line blocking).
 
 ### 3.1 Lock-free
 
@@ -100,7 +104,26 @@ Following msgtrans-rust, a connection's events belong to planes with different g
 
 v1 implements the Data and Control planes; the Diagnostic plane is on the roadmap.
 
-### 3.4 Connection lifecycle
+### 3.4 Overload contract (bounded everything)
+
+A single ordered TCP stream cannot skip ahead to a later Response while an earlier business
+message is stuck, so backpressure is honest, not magical:
+
+- The request queue, the outbound mailbox and the events channel are all **bounded**. When a queue
+  is full the read loop stalls (backpressure) — it does not drop or reorder.
+- The codec rejects a header claiming an oversized payload before buffering it (`maxPayloadLength`).
+- A **CPU-bound or blocking handler must offload explicitly** — "a slow handler stalls only its own
+  connection" holds only for handlers that suspend and yield the thread.
+- Planned (v1): a cap on in-flight requests, and a defined action on sustained overload
+  (reject / close) rather than unbounded buffering.
+
+### 3.5 send semantics
+
+`send`/`request` are **enqueue-confirmed** in v0: the call returns once the packet is on the
+outbound mailbox, not once the bytes reach the socket. msgtrans-rust's `send` is write-confirmed; a
+write-confirmed variant is planned so the two can be compared like for like.
+
+### 3.6 Connection lifecycle
 
 `close()` cancels the read and write coroutines and fails all pending requests with
 `ConnectionClosedException`. Cancellation is required: a closed fd is not reliably reported by

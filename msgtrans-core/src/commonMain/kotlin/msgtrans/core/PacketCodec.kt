@@ -16,6 +16,9 @@ import neton.io.codec.Encoder
  */
 object PacketCodec : Decoder<Packet>, Encoder<Packet> {
 
+    /** Reject a header claiming a payload larger than this before buffering it (overload guard). */
+    var maxPayloadLength: Long = 64L * 1024 * 1024
+
     override fun encode(item: Packet, out: Buffer) {
         out.writeByte(Packet.PROTOCOL_VERSION.toByte())
         out.writeByte(item.compression.code.toByte())
@@ -42,6 +45,8 @@ object PacketCodec : Decoder<Packet>, Encoder<Packet> {
         val extHeaderLen = buf.getU16(8)
         val payloadLen = buf.getU32(10).toLong() and 0xFFFFFFFFL
         val reserved = buf.getU16(14)
+
+        if (payloadLen > maxPayloadLength) throw ProtocolException("payload_len=$payloadLen exceeds max=$maxPayloadLength")
 
         val total = Packet.FIXED_HEADER_SIZE + extHeaderLen + payloadLen
         if (buf.readableBytes < total) return null
