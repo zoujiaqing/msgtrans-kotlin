@@ -3,9 +3,6 @@
 package msgtrans.transport.bench
 
 import kotlinx.cinterop.ExperimentalForeignApi
-import kotlinx.cinterop.alloc
-import kotlinx.cinterop.memScoped
-import kotlinx.cinterop.ptr
 import kotlinx.cinterop.toKString
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -16,14 +13,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import neton.io.net.runReactor
-import platform.posix.RUSAGE_SELF
 import platform.posix.getenv
-import platform.posix.getrusage
-import platform.posix.rusage
 import kotlin.concurrent.atomics.AtomicInt
 import kotlin.concurrent.atomics.AtomicLong
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
-import kotlin.experimental.ExperimentalNativeApi
 import kotlin.system.exitProcess
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -373,19 +366,11 @@ private fun writeFile(path: String, content: String) {
     platform.posix.fclose(f)
 }
 
-private class Rusage(val userSec: Double, val sysSec: Double, val maxRssBytes: Long)
+/** Process CPU time and peak RSS. Collected per platform (getrusage on Apple, /proc on Linux). */
+internal class Rusage(val userSec: Double, val sysSec: Double, val maxRssBytes: Long)
 
-@OptIn(ExperimentalNativeApi::class)
-private fun selfRusage(): Rusage = memScoped {
-    val ru = alloc<rusage>()
-    getrusage(RUSAGE_SELF, ru.ptr)
-    val user = ru.ru_utime.tv_sec.toDouble() + ru.ru_utime.tv_usec.toDouble() / 1e6
-    val sys = ru.ru_stime.tv_sec.toDouble() + ru.ru_stime.tv_usec.toDouble() / 1e6
-    // ru_maxrss is bytes on Apple, kilobytes on Linux.
-    val rss = ru.ru_maxrss.toLong()
-    val bytes = if (Platform.osFamily == OsFamily.MACOSX || Platform.osFamily == OsFamily.IOS) rss else rss * 1024
-    Rusage(user, sys, bytes)
-}
+/** Whole-process resource usage. Apple: getrusage; Linux: /proc/self (getrusage is not in the KN binding). */
+internal expect fun selfRusage(): Rusage
 
 private class ProgressStats(val min: Long, val max: Long, val zero: Int)
 
