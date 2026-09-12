@@ -74,16 +74,18 @@ The current implementation is a correctness prototype; these are the day-one bas
 optimization work is measured against. `requestServer`/`requestClient`, both on the same 2-core
 Linux box, localhost, release, 64 B, request/response round-trips:
 
-| Layer | 50 conns |
-|---|---|
-| msgtrans req/resp (io_uring) | 54,010 req/s |
-| msgtrans req/resp (epoll) | 52,061 req/s |
-| raw neton-io echo (io_uring), for reference | ~78,000 req/s |
+| driver | 50 conns | 200 conns | 500 conns |
+|---|---|---|---|
+| msgtrans req/resp (io_uring) | 54,010 | 46,356 | 40,545 req/s |
+| msgtrans req/resp (epoll) | 52,061 | 48,169 | — req/s |
+| raw neton-io echo (io_uring), for reference | ~78,000 | — | — req/s |
 
 So the actor + wire layer costs ~30% over a raw byte echo — the budget to reclaim. Known cost
 sources on the hot path: a `CompletableDeferred` per request, two channel hops (request queue +
-outbound mailbox), `Packet`/`ByteArray` allocations, and three coroutines per connection. At 200
-connections the current model does not complete the run cleanly — a scalability item to fix.
+outbound mailbox), `Packet`/`ByteArray` allocations, and three coroutines per connection.
+
+The model scales to hundreds of connections. (A ~200-connection stall first seen here turned out
+to be an io_uring SQ-ring overflow in neton-io, not the transport — epoll was unaffected; fixed.)
 
 The optimization is benchmark-driven (see SPEC): compare the coroutine model against a
 reactor-driven connection state machine, cut allocations and channel hops, then scale to

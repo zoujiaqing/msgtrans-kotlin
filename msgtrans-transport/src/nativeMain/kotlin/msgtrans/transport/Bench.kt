@@ -41,21 +41,29 @@ fun requestClientMain(args: Array<String>) {
     val clock = TimeSource.Monotonic.markNow()
     var totalRequests = 0L
 
+    var connected = 0
+    var ranOut = 0
+    val trace = args.getOrNull(5) == "trace"
     runReactor {
         val jobs = ArrayList<Job>(connections)
         repeat(connections) {
             jobs.add(launch {
                 val conn = Transport.connect(this, host, port)
+                connected++
+                if (trace && connected == connections) println("[all $connections connected @ ${clock.elapsedNow()}]")
                 var requests = 0L
                 while (clock.elapsedNow().inWholeMilliseconds < deadlineMs) {
                     conn.request(payload)
                     requests++
                 }
+                ranOut++
+                if (trace && ranOut == connections) println("[all run loops done @ ${clock.elapsedNow()}, reqs so far collected]")
                 conn.close()
                 totalRequests += requests
             })
         }
         jobs.forEach { it.join() }
+        if (trace) println("[all joined @ ${clock.elapsedNow()}]")
     }
 
     val elapsedSec = clock.elapsedNow().inWholeMilliseconds / 1000.0
