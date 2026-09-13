@@ -10,6 +10,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
+// Test ports are deliberately below 32768, outside the kernel's ephemeral range
+// (/proc/sys/net/ipv4/ip_local_port_range, typically 32768-60999). A fixed listen port
+// inside that range intermittently loses the bind to some other process's outbound
+// connection, which SO_REUSEADDR does not help with — it surfaces as a flaky EADDRINUSE.
 /**
  * Terminal-state and backpressure contract for the transport: request timeout, in-flight cap,
  * close failing pending requests, and cancellation cleaning up the registry.
@@ -18,7 +22,7 @@ class ContractTest {
 
     @Test
     fun requestTimesOutWithoutResponseAndConnectionStaysUp() = runReactor {
-        val port = 39520
+        val port = 19520
         // Handler parks forever, so no response is produced (a connection with no onRequest would
         // auto-reply empty, which is not "no answer").
         val server = Transport.bind(this, "127.0.0.1", port) { conn ->
@@ -39,7 +43,7 @@ class ContractTest {
 
     @Test
     fun closeFailsPendingRequests() = runReactor {
-        val port = 39521
+        val port = 19521
         val server = Transport.bind(this, "127.0.0.1", port) { conn ->
             conn.onRequest { _, _ -> CompletableDeferred<ByteArray>().await() }
         }
@@ -61,7 +65,7 @@ class ContractTest {
 
     @Test
     fun inFlightCapBoundsOutstandingRequests() = runReactor {
-        val port = 39522
+        val port = 19522
         var maxSeen = 0
         var concurrent = 0
         // The handler holds each request open until we release it, so requests pile up — but the
@@ -91,7 +95,7 @@ class ContractTest {
 
     @Test
     fun cancellingRequestRemovesItFromRegistry() = runReactor {
-        val port = 39523
+        val port = 19523
         val server = Transport.bind(this, "127.0.0.1", port) { conn ->
             conn.onRequest { _, _ -> CompletableDeferred<ByteArray>().await() }
         }
@@ -120,7 +124,7 @@ class ContractTest {
     }
     @Test
     fun timeoutFiresWhileWaitingForAnInFlightSlot() = runReactor {
-        val port = 39524
+        val port = 19524
         // Handler parks, so the single in-flight slot is held; a second request must time out on
         // the slot wait, not hang forever.
         val server = Transport.bind(this, "127.0.0.1", port) { conn ->
@@ -141,7 +145,7 @@ class ContractTest {
 
     @Test
     fun requestFromAnotherThreadIsPostedToTheReactor() = runReactor {
-        val port = 39525
+        val port = 19525
         val server = Transport.bind(this, "127.0.0.1", port) { conn ->
             conn.onRequest { payload, _ -> ("echo:" + payload.decodeToString()).encodeToByteArray() }
         }
@@ -165,7 +169,7 @@ class ContractTest {
     }
     @Test
     fun transportBindingAndRequestOrNull() = runReactor {
-        val port = 39526
+        val port = 19526
         // Bind and connect via the transport objects (the multi-protocol binding surface).
         val server = Transport.bind(this, TcpServerTransport("127.0.0.1", port)) { conn ->
             conn.onRequest { payload, _ -> payload }
@@ -181,7 +185,7 @@ class ContractTest {
 
     @Test
     fun requestOrNullReturnsNullOnTimeout() = runReactor {
-        val port = 39527
+        val port = 19527
         val server = Transport.bind(this, "127.0.0.1", port) { conn ->
             conn.onRequest { _, _ -> CompletableDeferred<ByteArray>().await() }
         }

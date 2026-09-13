@@ -6,6 +6,10 @@ import neton.io.net.runReactor
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
+// Test ports are deliberately below 32768, outside the kernel's ephemeral range
+// (/proc/sys/net/ipv4/ip_local_port_range, typically 32768-60999). A fixed listen port
+// inside that range intermittently loses the bind to some other process's outbound
+// connection, which SO_REUSEADDR does not help with — it surfaces as a flaky EADDRINUSE.
 /**
  * Outbound path contract that must hold for every [WriteMode]: FIFO order across concurrent
  * senders on one connection, bounded queue (senders suspend, nothing dropped), and request/response
@@ -41,6 +45,6 @@ class WriteModeTest {
         server.close()
     }
 
-    @Test fun channelMode() = exercise(WriteMode.CHANNEL, 39510)
-    @Test fun inlineMode() = exercise(WriteMode.INLINE, 39511)
+    @Test fun channelMode() = exercise(WriteMode.CHANNEL, 19510)
+    @Test fun inlineMode() = exercise(WriteMode.INLINE, 19511)
 }

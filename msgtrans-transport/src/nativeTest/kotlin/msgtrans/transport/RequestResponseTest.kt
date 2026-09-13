@@ -7,6 +7,10 @@ import neton.io.net.runReactor
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
+// Test ports are deliberately below 32768, outside the kernel's ephemeral range
+// (/proc/sys/net/ipv4/ip_local_port_range, typically 32768-60999). A fixed listen port
+// inside that range intermittently loses the bind to some other process's outbound
+// connection, which SO_REUSEADDR does not help with — it surfaces as a flaky EADDRINUSE.
 /**
  * P0/v1 acceptance for the actor transport: request/response, one-way events, and server push
  * over real TCP with the msgtrans wire codec on the neton-io reactor.
@@ -15,7 +19,7 @@ class RequestResponseTest {
 
     @Test
     fun requestResponse() = runReactor {
-        val port = 39500
+        val port = 19500
         val server = Transport.bind(this, "127.0.0.1", port) { conn ->
             conn.onRequest { payload, _ -> ("reply:" + payload.decodeToString()).encodeToByteArray() }
         }
@@ -32,7 +36,7 @@ class RequestResponseTest {
 
     @Test
     fun oneWayEvents() = runReactor {
-        val port = 39501
+        val port = 19501
         val received = mutableListOf<String>()
         val server = Transport.bind(this, "127.0.0.1", port) { conn ->
             conn.onRequest { payload, _ -> payload.decodeToString().uppercase().encodeToByteArray() }
@@ -54,7 +58,7 @@ class RequestResponseTest {
 
     @Test
     fun reverseRequestDoesNotDeadlock() = runReactor {
-        val port = 39503
+        val port = 19503
         // The server handler answers by making a reverse request back to the client on the same
         // connection. With an inline read loop this deadlocks; with the decoupled handler it works.
         val server = Transport.bind(this, "127.0.0.1", port) { conn ->
@@ -78,7 +82,7 @@ class RequestResponseTest {
 
     @Test
     fun serverPush() = runReactor {
-        val port = 39502
+        val port = 19502
         val server = Transport.bind(this, "127.0.0.1", port) { conn ->
             conn.launch { conn.send("welcome".encodeToByteArray(), bizType = 9) }
         }
