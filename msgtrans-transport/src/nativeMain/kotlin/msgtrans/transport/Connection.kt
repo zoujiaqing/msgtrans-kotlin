@@ -15,6 +15,7 @@ import kotlinx.coroutines.Delay
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.ContinuationInterceptor
@@ -207,6 +208,38 @@ class Connection internal constructor(
         cont.invokeOnCancellation { roomWaiters.remove(cont) }
     }
 
+    /**
+     * [enqueue] for a request that has a deadline. Plain enqueue parks either in [roomWaiters]
+     * (INLINE) or inside the full outbound channel (CHANNEL), and neither wait used to be covered
+     * by the request deadline: a caller could sit in enqueue long past its timeout, which
+     * contradicted the "one deadline for the whole call" contract. Both waits now end as soon as
+     * [req] is completed.
+     */
+    private suspend fun enqueueForRequest(packet: Packet, req: Pending) {
+        if (writeMode == WriteMode.CHANNEL) {
+            // A coroutine parked in Channel.send cannot be woken selectively, so race the send
+            // against the request's own result; if the deadline wins, onAwait rethrows its
+            // RequestTimeoutException and nothing is queued.
+            select {
+                outbound.onSend(packet) { }
+                req.result.onAwait { }
+            }
+            return
+        }
+        while (!closed && sendQueue.size >= mailboxCapacity && !req.result.isCompleted) {
+            suspendCancellableCoroutine<Unit> { cont ->
+                req.roomCont = cont
+                roomWaiters.addLast(cont)
+                cont.invokeOnCancellation { roomWaiters.remove(cont); req.roomCont = null }
+            }
+            req.roomCont = null
+        }
+        if (req.result.isCompleted) return // timed out waiting for room; nothing queued
+        if (closed) throw ConnectionClosedException()
+        sendQueue.addLast(packet)
+        if (!writerActive) drainAsWriter()
+    }
+
     private fun wakeOneRoomWaiter() {
         roomWaiters.removeFirstOrNull()?.resume(Unit)
     }
@@ -310,6 +343,8 @@ class Connection internal constructor(
     /** One outstanding request: its result and (while parked for a slot) its waiter. */
     private class Pending(val id: UInt, val result: CompletableDeferred<Packet>) {
         var slotCont: CancellableContinuation<Unit>? = null
+        /** Set while this request is parked waiting for outbound mailbox room (INLINE mode). */
+        var roomCont: CancellableContinuation<Unit>? = null
     }
 
     /**
@@ -335,6 +370,7 @@ class Connection internal constructor(
                     if (req.result.completeExceptionally(RequestTimeoutException(id, timeoutMillis))) {
                         pending.remove(id)
                         req.slotCont?.let { it.resume(Unit); req.slotCont = null }
+                        req.roomCont?.let { roomWaiters.remove(it); it.resume(Unit); req.roomCont = null }
                         wakeOneInFlightWaiter()
                     }
                 }, owner)
@@ -351,7 +387,9 @@ class Connection internal constructor(
                 if (req.result.isCompleted) return@withContext req.result.await().payload // timed out waiting
                 if (closed) throw ConnectionClosedException()
                 pending[id] = req.result
-                enqueue(Packet.request(payload, bizType, id))
+                enqueueForRequest(Packet.request(payload, bizType, id), req)
+                // If the deadline fired while we were parked for mailbox room, the result is
+                // already completed with RequestTimeoutException and await() rethrows it here.
                 return@withContext req.result.await().payload
             } finally {
                 deadline?.dispose()
