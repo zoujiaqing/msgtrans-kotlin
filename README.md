@@ -119,7 +119,8 @@ preserved) over TCP. Kotlin client -> Rust server: `benchClient mode=framed|rpc 
 port=18091` — 30k+ request/responses, 0 errors, and the framed layer checks type/id/biz_type/payload
 exactly. Rust client -> Kotlin server: the Rust `echo_client_tcp` example against `benchServer
 mode=rpc port=8001` receives the correct echoed responses. This exercises encode/decode in both
-languages. Still open: a shared **fixture-based** conformance suite (the Rust repo has
+languages. Reproduce with `scripts/interop-rust.sh` (builds the Rust echo
+example and both Kotlin bench binaries, runs both directions, asserts 0 errors). Still open: a shared **fixture-based** conformance suite (the Rust repo has
 `wire_format_fixtures`; running the same vectors in a Kotlin test is the remaining gate), and TS
 interop. API/toolchain boundary above covers the supported range (TCP; WebSocket/QUIC declared,
 unimplemented).
