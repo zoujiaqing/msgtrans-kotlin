@@ -20,6 +20,10 @@ import kotlinx.coroutines.withContext
 import kotlin.coroutines.ContinuationInterceptor
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
+import msgtrans.core.ProtocolException
+import platform.posix.fprintf
+import platform.posix.fflush
+import platform.posix.stderr
 import msgtrans.core.Packet
 import msgtrans.core.PacketCodec
 import msgtrans.core.PacketType
@@ -265,6 +269,11 @@ class Connection internal constructor(
             // close() resumed our parked read; normal termination.
         } catch (_: IoException) {
             // peer reset / socket error; terminate the connection.
+        } catch (e: ProtocolException) {
+            // A peer that speaks garbage kills its own connection and nothing else (P1-4).
+            // Left uncaught this propagated out of the read coroutine and, when connections
+            // shared one scope, cancelled every sibling connection on the server.
+            reportConnectionFault("protocol error", e)
         } finally {
             shutdown()
         }
@@ -273,10 +282,29 @@ class Connection internal constructor(
     // Handlers run here, serialized per connection but off the read path, so a slow or reentrant
     // handler cannot block response completion or deadlock on its own reverse request.
     private suspend fun handlerLoop() {
-        for (packet in inboundRequests) {
-            val response = requestHandler?.invoke(packet.payload, packet.bizType) ?: EMPTY
-            enqueue(Packet.response(response, packet.bizType, packet.messageId))
+        try {
+            for (packet in inboundRequests) {
+                val response = requestHandler?.invoke(packet.payload, packet.bizType) ?: EMPTY
+                enqueue(Packet.response(response, packet.bizType, packet.messageId))
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            // The request handler is business code and may throw anything. The protocol has no
+            // error packet, so the honest outcome is to fail this connection — the peer sees a
+            // disconnect and its pending request times out — while every other connection on the
+            // server keeps running (P1-4). Previously this escaped and cancelled the shared scope.
+            reportConnectionFault("request handler failed", e)
+        } finally {
+            shutdown()
         }
+    }
+
+    /** One line on stderr; connection faults must be visible without taking the process down. */
+    @OptIn(ExperimentalForeignApi::class)
+    private fun reportConnectionFault(what: String, t: Throwable) {
+        fprintf(stderr, "msgtrans: connection closed after %s: %s\n", what, (t.message ?: t.toString()))
+        fflush(stderr)
     }
 
     /** One outstanding request: its result and (while parked for a slot) its waiter. */
@@ -350,6 +378,14 @@ class Connection internal constructor(
         enqueue(Packet.oneWay(payload, bizType, nextOneWayId()))
     }
 
+    /**
+     * Invoked once, after the connection has reached its terminal state. The server uses it to
+     * cancel the per-connection scope it created: an explicitly constructed [kotlinx.coroutines.Job]
+     * never completes on its own just because its children finished, so without this the scope
+     * would stay Active forever and its parent would never complete.
+     */
+    internal var onShutdown: (() -> Unit)? = null
+
     /** Close the connection. Safe to call from any thread; runs on the owning reactor. */
     suspend fun close(): Unit = withContext(owner) { shutdown() }
 
@@ -374,6 +410,7 @@ class Connection internal constructor(
         readJob?.cancel()
         writeJob?.cancel()
         handlerJob?.cancel()
+        onShutdown?.invoke()
     }
 
     private fun nextRequestId(): UInt {

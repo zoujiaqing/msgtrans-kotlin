@@ -1,6 +1,10 @@
 package msgtrans.transport
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 
 /**
  * Entry points for opening connections, over any [ClientTransport] / [ServerTransport]. Everything
@@ -47,9 +51,23 @@ class TransportServer internal constructor(
 ) {
     suspend fun acceptLoop() {
         while (true) {
-            val conn = Connection(acceptor.accept(), scope, config)
-            onConnection(conn)
-            conn.start()
+            val stream = acceptor.accept()
+            // Every connection runs under its own SupervisorJob, parented to the server scope so
+            // closing the server still tears all of them down. Sharing one scope meant a single
+            // connection's failure cancelled its siblings — one bad peer took out the server
+            // (P1-4). A supervisor child's failure stays local.
+            val connScope = CoroutineScope(scope.coroutineContext + SupervisorJob(scope.coroutineContext[Job]))
+            val conn = Connection(stream, connScope, config)
+            conn.onShutdown = { connScope.cancel() }
+            try {
+                onConnection(conn)
+                conn.start()
+            } catch (t: Throwable) {
+                // A throwing onConnection must not end the accept loop either.
+                connScope.cancel()
+                conn.close()
+                if (t is CancellationException) throw t
+            }
         }
     }
 
