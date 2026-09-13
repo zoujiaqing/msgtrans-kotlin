@@ -2,6 +2,7 @@ plugins { kotlin("multiplatform") }
 repositories { mavenCentral() }
 kotlin {
     val nativeTargets = listOf(macosArm64(), macosX64(), linuxX64(), linuxArm64())
+    iosArm64(); iosSimulatorArm64(); iosX64()
     nativeTargets.forEach { target ->
         target.binaries {
             // Benchmark harness (bench/run.sh): one server and one client binary, mode-selected
