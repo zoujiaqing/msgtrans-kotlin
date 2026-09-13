@@ -228,8 +228,11 @@ belongs to neton-io and is out of scope here; see the neton-io SPEC.
   `WIRE_FORMAT.md`; a shared fixture suite (with the Rust and TypeScript implementations) is the
   acceptance gate for the wire. Status (2026-09-13): the codec is unit-tested against the byte
   layout, and the transport passes its suite on macOS (kqueue) and Linux (io_uring/epoll, incl.
-  SQ depth 8) — see the READMEs. **Cross-language interop against Rust/TS is not yet verified**
-  (no shared cross-impl fixture has been run); it stays the open acceptance gate.
+  SQ depth 8) — see the READMEs. **Cross-language interop against Rust: verified** (2026-09-13) both directions over TCP against the
+  Rust `echo_server` passive example — Kotlin client -> Rust server (framed/rpc, type/id/biz_type/
+  payload exact, 0 errors) and Rust `echo_client_tcp` -> Kotlin server (correct echoed responses).
+  Still open: a shared **fixture-based** conformance suite (run the Rust `wire_format_fixtures`
+  vectors in a Kotlin test) and TS interop.
 - **Benchmark (benchmark-driven; harness in `bench/`)**: the current three-coroutine + Channel
   implementation is a correctness prototype, not the performance architecture. The benchmark is
   the arbiter. The harness (`benchServer`/`benchClient`, `bench/run.sh`, see `bench/README.md`)

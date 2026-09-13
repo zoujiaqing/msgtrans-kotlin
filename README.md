@@ -113,10 +113,16 @@ contracts (dual call entry incl. a request issued from another thread, timeout i
 slot wait, terminal-state cleanup, backpressure, the transport binding, requestOrNull), not a
 guarantee of every path or of scalability/tail-latency/memory behaviour under sustained load.
 
-Not yet verified: **cross-language wire interop** with the Rust and TypeScript implementations
-(the codec is unit-tested against the byte layout, but no shared cross-impl fixture has been run).
-API surface and toolchain boundary are recorded above for the actually-supported range (TCP only;
-WebSocket/QUIC are declared but unimplemented).
+Cross-language wire interop with the **Rust** msgtrans (2026-09-13, reproducible): verified both
+directions against the Rust `echo_server` example in passive mode (byte-for-byte echo, biz_type/id
+preserved) over TCP. Kotlin client -> Rust server: `benchClient mode=framed|rpc host=127.0.0.1
+port=18091` — 30k+ request/responses, 0 errors, and the framed layer checks type/id/biz_type/payload
+exactly. Rust client -> Kotlin server: the Rust `echo_client_tcp` example against `benchServer
+mode=rpc port=8001` receives the correct echoed responses. This exercises encode/decode in both
+languages. Still open: a shared **fixture-based** conformance suite (the Rust repo has
+`wire_format_fixtures`; running the same vectors in a Kotlin test is the remaining gate), and TS
+interop. API/toolchain boundary above covers the supported range (TCP; WebSocket/QUIC declared,
+unimplemented).
 
 Next: cross-language conformance fixtures against Rust/TS; compression (Zstd/Zlib payloads);
 WebSocket transport; the ext-header/route-tag path.
