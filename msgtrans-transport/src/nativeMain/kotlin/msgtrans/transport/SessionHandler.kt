@@ -9,3 +9,11 @@ class ConnectionClosedException(message: String = "connection closed") : Excepti
 /** Raised when a request gets no response within its timeout; the connection stays open. */
 class RequestTimeoutException(val messageId: UInt, val timeoutMillis: Long) :
     Exception("request $messageId timed out after ${timeoutMillis}ms")
+
+/**
+ * An outbound payload the connection refuses to queue: either larger than
+ * [ConnectionConfig.maxPayloadLength], which the peer would reject on decode anyway, or larger
+ * than the whole outbound byte budget, which no amount of draining would ever make room for.
+ */
+class PayloadTooLargeException(val bytes: Long, val limit: Long) :
+    Exception("outbound payload of $bytes bytes exceeds the limit of $limit bytes")

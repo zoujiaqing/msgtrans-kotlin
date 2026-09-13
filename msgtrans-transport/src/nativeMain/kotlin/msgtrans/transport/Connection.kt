@@ -67,6 +67,13 @@ enum class WriteMode {
 /**
  * A per-connection actor (see SPEC section 3).
  *
+ * Memory ceiling. What the connection itself holds is bounded by [ConnectionConfig]:
+ * outbound is capped at maxOutboundBytes; inbound is capped at
+ * (inboundCapacity + maxInFlightRequests) × maxPayloadLength. What it does *not* bound is the
+ * callers: every coroutine parked in send/request keeps its own payload alive until it is queued,
+ * and how many of those exist is the application's choice, not the connection's. Bounding that
+ * would mean dropping or rejecting user data, which this layer does not do silently.
+ *
  * The connection is owned by its own coroutines with a bounded outbound mailbox: a read loop
  * dispatches inbound packets and a write loop drains the mailbox. All connection state (the
  * pending-request registry and the id counters) is touched only from these coroutines on the
@@ -89,10 +96,19 @@ class ConnectionConfig(
     /** Default per-request timeout in ms; 0 disables. request(timeoutMillis=…) overrides. */
     val requestTimeoutMillis: Long = 30_000,
     /**
-     * Max inbound frame size. A connection's memory ceiling is bounded and tunable:
-     * roughly (inboundCapacity + mailboxCapacity + maxInFlightRequests) × maxPayloadLength.
+     * Max frame size, enforced on decode *and* on everything the connection queues outbound.
+     * A larger outbound payload is rejected with [PayloadTooLargeException] rather than queued:
+     * the peer would refuse it on decode anyway.
      */
     val maxPayloadLength: Long = PacketCodec.DEFAULT_MAX_PAYLOAD,
+    /**
+     * Ceiling on the bytes the connection itself holds on the outbound path, across both write
+     * modes. Element counts alone bound nothing when payloads vary in size: [mailboxCapacity]
+     * packets of [maxPayloadLength] is 16 GiB at the defaults. A sender waits until its payload
+     * fits; one packet is always allowed through an empty queue so a large-but-legal payload
+     * cannot deadlock.
+     */
+    val maxOutboundBytes: Long = 8L * 1024 * 1024,
     val writeMode: WriteMode = WriteMode.default,
 )
 
@@ -146,6 +162,12 @@ class Connection internal constructor(
     private val sendQueue = ArrayDeque<Packet>()
     private var writerActive = false
     private val roomWaiters = ArrayDeque<CancellableContinuation<Unit>>()
+
+    /** Bytes currently queued outbound (sendQueue in INLINE mode, the channel in CHANNEL mode). */
+    private var queuedBytes = 0L
+
+    /** The live outbound byte count, so tests can assert the budget invariant directly. */
+    internal val outboundQueuedBytes: Long get() = queuedBytes
     private val inFlightWaiters = ArrayDeque<Pending>()
     private val inboundRequests = Channel<Packet>(config.inboundCapacity)
     private val inboundEvents = Channel<Message>(config.inboundCapacity)
@@ -185,27 +207,66 @@ class Connection internal constructor(
 
     private suspend fun writeLoop() {
         try {
-            for (packet in outbound) framed.send(packet)
+            for (packet in outbound) {
+                framed.send(packet)
+                releaseOutboundBytes(packetBytes(packet))
+            }
         } catch (_: IoException) {
             shutdown()
         }
     }
 
+    private fun packetBytes(packet: Packet): Long = packet.payload.size.toLong()
+
+    /**
+     * Reject what could never be queued: a payload the peer would refuse on decode, or one larger
+     * than the entire outbound budget, which no amount of draining would make room for. Failing
+     * loudly here beats parking the caller forever.
+     */
+    private fun checkOutboundSize(packet: Packet) {
+        val bytes = packetBytes(packet)
+        if (bytes > config.maxPayloadLength) throw PayloadTooLargeException(bytes, config.maxPayloadLength)
+        if (bytes > config.maxOutboundBytes) throw PayloadTooLargeException(bytes, config.maxOutboundBytes)
+    }
+
+    /**
+     * Wait until [bytes] fit on the outbound path: a free mailbox slot (INLINE) and room in the
+     * byte budget (both modes). Slot counts alone bound nothing once payloads vary in size, which
+     * is what made the documented memory ceiling untrue.
+     *
+     * When [req] is given, the wait also ends as soon as that request settles, so a deadline can
+     * abort it; returns false in that case, meaning nothing should be queued.
+     */
+    private suspend fun awaitOutboundRoom(bytes: Long, req: Pending?): Boolean {
+        while (!closed) {
+            if (req != null && req.result.isCompleted) return false
+            val slotFree = writeMode == WriteMode.CHANNEL || sendQueue.size < mailboxCapacity
+            // An empty queue always accepts one packet, so a large but legal payload cannot
+            // deadlock against its own budget.
+            val byteFree = queuedBytes == 0L || queuedBytes + bytes <= config.maxOutboundBytes
+            if (slotFree && byteFree) return true
+            suspendCancellableCoroutine<Unit> { cont ->
+                req?.roomCont = cont
+                roomWaiters.addLast(cont)
+                cont.invokeOnCancellation { roomWaiters.remove(cont); req?.roomCont = null }
+            }
+            req?.roomCont = null
+        }
+        if (req != null && req.result.isCompleted) return false
+        throw ConnectionClosedException()
+    }
+
     /** Put [packet] on the outbound path according to [writeMode]; suspends under backpressure. */
     private suspend fun enqueue(packet: Packet) {
+        checkOutboundSize(packet)
+        awaitOutboundRoom(packetBytes(packet), null)
+        queuedBytes += packetBytes(packet)
         if (writeMode == WriteMode.CHANNEL) {
             outbound.send(packet)
             return
         }
-        while (!closed && sendQueue.size >= mailboxCapacity) awaitRoom()
-        if (closed) throw ConnectionClosedException()
         sendQueue.addLast(packet)
         if (!writerActive) drainAsWriter()
-    }
-
-    private suspend fun awaitRoom() = suspendCancellableCoroutine<Unit> { cont ->
-        roomWaiters.addLast(cont)
-        cont.invokeOnCancellation { roomWaiters.remove(cont) }
     }
 
     /**
@@ -216,28 +277,30 @@ class Connection internal constructor(
      * [req] is completed.
      */
     private suspend fun enqueueForRequest(packet: Packet, req: Pending) {
+        checkOutboundSize(packet)
+        if (!awaitOutboundRoom(packetBytes(packet), req)) return // deadline fired; nothing queued
+        queuedBytes += packetBytes(packet)
         if (writeMode == WriteMode.CHANNEL) {
             // A coroutine parked in Channel.send cannot be woken selectively, so race the send
             // against the request's own result; if the deadline wins, onAwait rethrows its
             // RequestTimeoutException and nothing is queued.
+            var sent = false
             select {
-                outbound.onSend(packet) { }
+                outbound.onSend(packet) { sent = true }
                 req.result.onAwait { }
             }
+            if (!sent) releaseOutboundBytes(packetBytes(packet))
             return
         }
-        while (!closed && sendQueue.size >= mailboxCapacity && !req.result.isCompleted) {
-            suspendCancellableCoroutine<Unit> { cont ->
-                req.roomCont = cont
-                roomWaiters.addLast(cont)
-                cont.invokeOnCancellation { roomWaiters.remove(cont); req.roomCont = null }
-            }
-            req.roomCont = null
-        }
-        if (req.result.isCompleted) return // timed out waiting for room; nothing queued
-        if (closed) throw ConnectionClosedException()
         sendQueue.addLast(packet)
         if (!writerActive) drainAsWriter()
+    }
+
+    /** Give [bytes] back to the outbound budget and let a waiter through. */
+    private fun releaseOutboundBytes(bytes: Long) {
+        queuedBytes -= bytes
+        if (queuedBytes < 0L) queuedBytes = 0L
+        wakeOneRoomWaiter()
     }
 
     private fun wakeOneRoomWaiter() {
@@ -258,14 +321,26 @@ class Connection internal constructor(
             if (io.writeBuf.readableBytes > 0) writeAll()
             while (!closed) {
                 val packet = sendQueue.removeFirstOrNull() ?: break
-                wakeOneRoomWaiter()
+                releaseOutboundBytes(packetBytes(packet))
                 codec.encode(packet, io.writeBuf)
                 writeAll()
             }
         } catch (e: CancellationException) {
             if (!closed && (io.writeBuf.readableBytes > 0 || sendQueue.isNotEmpty())) {
                 handedOff = true
-                scope.launch { drainAsWriter() }
+                // The successor has no caller to receive an error. Rethrowing out of a bare
+                // scope.launch made a perfectly ordinary write failure - the peer went away while
+                // we were handing off - an uncaught exception that took the process down.
+                scope.launch {
+                    try {
+                        drainAsWriter()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (t: Throwable) {
+                        // drainAsWriter has already run shutdown() for this.
+                        reportConnectionFault("outbound write failed", t)
+                    }
+                }
             }
             throw e
         } catch (t: Throwable) {
@@ -437,6 +512,7 @@ class Connection internal constructor(
         pending.values.forEach { it.completeExceptionally(ConnectionClosedException()) }
         pending.clear()
         sendQueue.clear()
+        queuedBytes = 0L
         while (roomWaiters.isNotEmpty()) roomWaiters.removeFirst().resumeWithException(ConnectionClosedException())
         // Fail slot-waiters: complete their result and wake them; they observe the completed result.
         while (inFlightWaiters.isNotEmpty()) {
