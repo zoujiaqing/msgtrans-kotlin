@@ -7,6 +7,7 @@ kotlin {
         commonMain.dependencies {
             api("com.netonstream.io:neton-io-bytes")
             api("com.netonstream.io:neton-io-codec")
+            implementation("com.squareup.zstd:zstd-kmp:0.4.0")
         }
         commonTest.dependencies { implementation(kotlin("test")) }
     }

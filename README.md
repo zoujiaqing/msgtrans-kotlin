@@ -26,6 +26,9 @@ Contracts:
   and monotonic, one-way messages use a separate counter.
 - **Terminal states release once.** close, peer EOF, socket error, timeout and cancellation each
   free the registry, queues and waiters exactly once (see the class doc on `Connection`).
+- **Compression is normalized at one boundary.** Outbound zstd/zlib is applied before framing;
+  compressed input may expand to at most 16 MiB and is decompressed before any handler or pending
+  request. Uncompressed input keeps the existing frame-size limit.
 
 Current implementation (a per-connection actor with coroutines; may be replaced if a benchmark
 justifies it — the contracts above will not change):
@@ -55,7 +58,8 @@ repos until they are published with a stable ABI.
 
 ## Modules
 
-- `msgtrans-core` — `Packet`, `PacketCodec` (wire-exact, big-endian), types. All native targets.
+- `msgtrans-core` — `Packet`, `PacketCodec` (wire-exact, big-endian), zstd/zlib payload codecs,
+  types. All native targets.
 - `msgtrans-transport` — the `Connection` session, `Transport` client/server, the `ClientTransport`/
   `ServerTransport` protocol seam (TCP; WebSocket/QUIC declared). Runs on the neton-io reactor.
 
@@ -75,9 +79,11 @@ runReactor {
     val conn = Transport.connect(this, TcpClientTransport("127.0.0.1", 9000),
         ConnectionConfig(requestTimeoutMillis = 5_000, maxInFlightRequests = 256))
 
-    conn.send("hello".encodeToByteArray())                       // one-way
+    conn.send("hello".encodeToByteArray(), compression = Compression.Zstd)
 
-    val reply = conn.request("ping".encodeToByteArray(), bizType = 7)   // reply == "reply:ping"
+    val reply = conn.request(
+        "ping".encodeToByteArray(), bizType = 7, compression = Compression.Zlib,
+    )
     // request throws RequestTimeoutException on timeout, ConnectionClosedException on close;
     // requestOrNull returns null on timeout (mirrors Rust `request(...).data: Option`):
     val data: ByteArray? = conn.requestOrNull("what time is it?".encodeToByteArray())
@@ -101,14 +107,17 @@ it — so a connection reference can be shared with worker threads safely.
 
 ## Status
 
-Wire-exact Packet codec (verified against the exact byte layout) and the transport
+Wire-exact Packet codec (verified against the exact byte layout), zstd/zlib compression, and transport
 (request/response with timeouts and an in-flight cap, one-way events, server push) with the
 contracts above. Request timeouts use the neton-io reactor timer.
 
-Verified (2026-09-13), reproducible: `msgtrans-transport:linuxX64Test` — 14 cases (ContractTest 8,
-RequestResponse 4, WriteMode 2) — passes with 0 failures on a Rocky Linux 9.8 / kernel 5.14 /
-x86_64 host under **io_uring, epoll, and io_uring at SQ depth 8** (Kotlin 2.4.0, Gradle 8.14.2,
-JDK 17); `msgtrans-core` too; macOS (kqueue) passes the same cases. This is test-case pass over the
+Verified (2026-09-15), reproducible: `msgtrans-transport:linuxX64Test` — 22 cases (ContractTest 8,
+FaultIsolation 1, OutboundBudget 3, RequestDeadline 2, RequestResponse 6, WriteMode 2) — passes
+with 0 failures on a Rocky Linux 9.8 / kernel 5.14 / x86_64 host under **epoll**; `msgtrans-core`
+passes there too, and macOS (kqueue) passes the same cases. The pre-compression 20-case suite also
+passed under io_uring and io_uring at SQ depth 8 on that host on 2026-09-13; the host currently has
+io_uring disabled at the kernel level, so the two new compression transport cases have not been
+re-run with that driver. This is test-case pass over the
 contracts (dual call entry incl. a request issued from another thread, timeout incl. the in-flight
 slot wait, terminal-state cleanup, backpressure, the transport binding, requestOrNull), not a
 guarantee of every path or of scalability/tail-latency/memory behaviour under sustained load.
@@ -125,8 +134,10 @@ example and both Kotlin bench binaries, runs both directions, asserts 0 errors).
 interop. API/toolchain boundary above covers the supported range (TCP; WebSocket/QUIC declared,
 unimplemented).
 
-Next: cross-language conformance fixtures against Rust/TS; compression (Zstd/Zlib payloads);
-WebSocket transport; the ext-header/route-tag path.
+Compression interoperability is verified in both directions against msgtrans-rust with `flate2`
+and `zstd`: Rust fixtures decode in Kotlin, and Kotlin output decodes in Rust. The zstd codec is
+Square's native KMP packaging of libzstd; zlib uses the platform library. Next: the remaining wire
+fixtures against Rust/TS, WebSocket transport, and the ext-header/route-tag path.
 
 ## Benchmark
 

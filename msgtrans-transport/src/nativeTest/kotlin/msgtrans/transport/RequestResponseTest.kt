@@ -4,8 +4,12 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import neton.io.net.runReactor
+import msgtrans.core.Compression
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 
 // Test ports are deliberately below 32768, outside the kernel's ephemeral range
 // (/proc/sys/net/ipv4/ip_local_port_range, typically 32768-60999). A fixed listen port
@@ -94,6 +98,62 @@ class RequestResponseTest {
         assertEquals(9, push.bizType)
 
         conn.close()
+        serverJob.cancelAndJoin()
+        server.close()
+    }
+
+    @Test
+    fun compressedTrafficIsPlaintextAtEveryApplicationBoundary() = runReactor {
+        val port = 19504
+        val requestBody = "request-body:".repeat(1_000).encodeToByteArray()
+        val eventBody = "event-body:".repeat(1_000).encodeToByteArray()
+        val receivedEvents = mutableListOf<ByteArray>()
+        val server = Transport.bind(
+            this,
+            "127.0.0.1",
+            port,
+            ConnectionConfig(responseCompression = Compression.Zlib),
+        ) { conn ->
+            conn.onRequest { payload, _ ->
+                assertContentEquals(requestBody, payload)
+                payload
+            }
+            conn.launch { conn.events().collect { receivedEvents += it.payload } }
+        }
+        val serverJob = launch { server.acceptLoop() }
+
+        val conn = Transport.connect(this, "127.0.0.1", port)
+        val response = conn.request(requestBody, bizType = 7, compression = Compression.Zstd)
+        assertContentEquals(requestBody, response)
+        conn.send(eventBody, bizType = 8, compression = Compression.Zlib)
+        conn.request(requestBody, compression = Compression.Zstd) // ordering barrier
+        assertContentEquals(eventBody, receivedEvents.single())
+
+        conn.close()
+        serverJob.cancelAndJoin()
+        server.close()
+    }
+
+    @Test
+    fun decompressionLimitClosesOnlyTheOffendingConnection() = runReactor {
+        val port = 19505
+        var handlerRan = false
+        val server = Transport.bind(
+            this,
+            "127.0.0.1",
+            port,
+            ConnectionConfig(maxDecompressedPayloadLength = 1_024),
+        ) { conn ->
+            conn.onRequest { payload, _ -> handlerRan = true; payload }
+        }
+        val serverJob = launch { server.acceptLoop() }
+        val conn = Transport.connect(this, "127.0.0.1", port)
+
+        assertFailsWith<ConnectionClosedException> {
+            conn.request(ByteArray(2_048) { 1 }, compression = Compression.Zstd)
+        }
+        assertFalse(handlerRan)
+
         serverJob.cancelAndJoin()
         server.close()
     }

@@ -39,7 +39,7 @@ object Flags {
     const val HAS_ROUTE_TAG = 0x0004
 }
 
-class ProtocolException(message: String) : Exception(message)
+open class ProtocolException(message: String) : Exception(message)
 
 /**
  * One msgtrans packet. Layout is defined by the wire spec (16-byte big-endian fixed header,
@@ -65,6 +65,9 @@ class Packet(
 
     /** Total serialized size in bytes. */
     val size: Int get() = FIXED_HEADER_SIZE + extHeader.size + payload.size
+
+    internal fun withPayload(newPayload: ByteArray, newCompression: Compression): Packet =
+        Packet(type, messageId, bizType, newPayload, extHeader, newCompression, reserved)
 
     companion object {
         const val PROTOCOL_VERSION = 1

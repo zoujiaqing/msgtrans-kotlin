@@ -28,6 +28,8 @@ import platform.posix.stderr
 import msgtrans.core.Packet
 import msgtrans.core.PacketCodec
 import msgtrans.core.PacketType
+import msgtrans.core.Compression
+import msgtrans.core.PayloadCompression
 import neton.io.core.Framed
 import neton.io.core.ClosedException
 import neton.io.core.Io
@@ -99,7 +101,7 @@ class ConnectionConfig(
      * Max frame size, enforced on decode *and* on everything the connection queues outbound.
      * A larger outbound payload is rejected with [PayloadTooLargeException] rather than queued:
      * the peer would refuse it on decode anyway.
-     */
+    */
     val maxPayloadLength: Long = PacketCodec.DEFAULT_MAX_PAYLOAD,
     /**
      * Ceiling on the bytes the connection itself holds on the outbound path, across both write
@@ -107,10 +109,20 @@ class ConnectionConfig(
      * packets of [maxPayloadLength] is 16 GiB at the defaults. A sender waits until its payload
      * fits; one packet is always allowed through an empty queue so a large-but-legal payload
      * cannot deadlock.
-     */
+    */
     val maxOutboundBytes: Long = 8L * 1024 * 1024,
     val writeMode: WriteMode = WriteMode.default,
-)
+    /** Maximum plaintext produced by inbound decompression; bounds decompression bombs. */
+    val maxDecompressedPayloadLength: Int = PayloadCompression.DEFAULT_MAX_DECOMPRESSED_SIZE,
+    /** Compression applied to automatic handler responses. Requests and one-way sends choose per call. */
+    val responseCompression: Compression = Compression.None,
+) {
+    init {
+        require(maxDecompressedPayloadLength >= 0) {
+            "maxDecompressedPayloadLength must not be negative"
+        }
+    }
+}
 
 /**
  * A per-connection actor (see SPEC section 3).
@@ -217,6 +229,13 @@ class Connection internal constructor(
     }
 
     private fun packetBytes(packet: Packet): Long = packet.payload.size.toLong()
+
+    private fun prepareOutboundPayload(payload: ByteArray, compression: Compression): ByteArray {
+        if (compression != Compression.None && payload.size > config.maxDecompressedPayloadLength) {
+            throw PayloadTooLargeException(payload.size.toLong(), config.maxDecompressedPayloadLength.toLong())
+        }
+        return PayloadCompression.compress(payload, compression)
+    }
 
     /**
      * Reject what could never be queued: a payload the peer would refuse on decode, or one larger
@@ -366,7 +385,10 @@ class Connection internal constructor(
     // request or a pipelined response always advances) and hands requests to the handler loop.
     private suspend fun readLoop() {
         try {
-            framed.incoming().collect { packet ->
+            framed.incoming().collect { wirePacket ->
+                // This is the single inbound normalization point. Pending requests, application
+                // handlers and event collectors always receive plaintext and a None marker.
+                val packet = PayloadCompression.decompress(wirePacket, config.maxDecompressedPayloadLength)
                 when (packet.type) {
                     PacketType.Response -> pending.remove(packet.messageId)?.let { it.complete(packet); wakeOneInFlightWaiter() }
                     PacketType.Request -> inboundRequests.send(packet)
@@ -393,7 +415,11 @@ class Connection internal constructor(
         try {
             for (packet in inboundRequests) {
                 val response = requestHandler?.invoke(packet.payload, packet.bizType) ?: EMPTY
-                enqueue(Packet.response(response, packet.bizType, packet.messageId))
+                val encoded = prepareOutboundPayload(response, config.responseCompression)
+                enqueue(Packet(
+                    PacketType.Response, packet.messageId, packet.bizType, encoded,
+                    compression = config.responseCompression,
+                ))
             }
         } catch (e: CancellationException) {
             throw e
@@ -433,9 +459,15 @@ class Connection internal constructor(
      * the request: a request already queued may still be sent, and its later response is dropped.
      * Closing fails the request with [ConnectionClosedException].
      */
-    suspend fun request(payload: ByteArray, bizType: Int = 0, timeoutMillis: Long = config.requestTimeoutMillis): ByteArray =
+    suspend fun request(
+        payload: ByteArray,
+        bizType: Int = 0,
+        timeoutMillis: Long = config.requestTimeoutMillis,
+        compression: Compression = Compression.None,
+    ): ByteArray =
         withContext(owner) {
             check(!closed) { "connection closed" }
+            val encoded = prepareOutboundPayload(payload, compression)
             val id = nextRequestId()
             val req = Pending(id, CompletableDeferred())
             // One deadline for the whole call: fails the result and wakes a parked slot-waiter.
@@ -462,7 +494,9 @@ class Connection internal constructor(
                 if (req.result.isCompleted) return@withContext req.result.await().payload // timed out waiting
                 if (closed) throw ConnectionClosedException()
                 pending[id] = req.result
-                enqueueForRequest(Packet.request(payload, bizType, id), req)
+                enqueueForRequest(Packet(
+                    PacketType.Request, id, bizType, encoded, compression = compression,
+                ), req)
                 // If the deadline fired while we were parked for mailbox room, the result is
                 // already completed with RequestTimeoutException and await() rethrows it here.
                 return@withContext req.result.await().payload
@@ -482,13 +516,26 @@ class Connection internal constructor(
      * Like [request] but returns null on timeout instead of throwing, mirroring msgtrans-rust's
      * `request(...).data: Option<_>` (None = timed out). Connection failures still throw.
      */
-    suspend fun requestOrNull(payload: ByteArray, bizType: Int = 0, timeoutMillis: Long = config.requestTimeoutMillis): ByteArray? =
-        try { request(payload, bizType, timeoutMillis) } catch (_: RequestTimeoutException) { null }
+    suspend fun requestOrNull(
+        payload: ByteArray,
+        bizType: Int = 0,
+        timeoutMillis: Long = config.requestTimeoutMillis,
+        compression: Compression = Compression.None,
+    ): ByteArray? = try {
+        request(payload, bizType, timeoutMillis, compression)
+    } catch (_: RequestTimeoutException) {
+        null
+    }
 
     /** Send a one-way message (no response expected). Runs on the owning reactor. */
-    suspend fun send(payload: ByteArray, bizType: Int = 0): Unit = withContext(owner) {
+    suspend fun send(
+        payload: ByteArray,
+        bizType: Int = 0,
+        compression: Compression = Compression.None,
+    ): Unit = withContext(owner) {
         check(!closed) { "connection closed" }
-        enqueue(Packet.oneWay(payload, bizType, nextOneWayId()))
+        val encoded = prepareOutboundPayload(payload, compression)
+        enqueue(Packet(PacketType.OneWay, nextOneWayId(), bizType, encoded, compression = compression))
     }
 
     /**

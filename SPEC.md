@@ -43,8 +43,10 @@ drift. A 16-byte big-endian fixed header, then an optional ext header, then the 
   matching Request's id. OneWay and Request share the counter; the per-session request counter
   **refuses to wrap** (saturates and reports exhaustion — a reconnect gets a fresh session), and
   the one-way counter is separate and free to wrap.
-- The codec (`msgtrans-core`) is wire-exact and unit-tested against the exact byte layout so it
-  stays interoperable. v1 does not de/compress payloads inside the transport layer.
+- The codec (`msgtrans-core`) is wire-exact and unit-tested against the exact byte layout. Payload
+  compression is a separate transform: send compresses before framing; the connection read loop
+  decompresses once before dispatch and resets the marker to None. Zstd uses level 3; zlib uses
+  its default level. Expanded payloads above 16 MiB are rejected as protocol errors.
 
 ---
 
@@ -159,7 +161,7 @@ id counter is per-session and refuses to wrap; a reconnect gets a fresh session.
 
 | Module | Contents | Targets |
 |---|---|---|
-| `msgtrans-core` | `Packet`, `PacketCodec` (wire-exact), `PacketType`, `Compression`, flags | all native |
+| `msgtrans-core` | `Packet`, `PacketCodec`, zstd/zlib transforms, types and flags | all native |
 | `msgtrans-transport` | `Connection` (actor), `Transport` client/server, `Message` | Apple + Linux (neton-io reactor) |
 
 Future modules: `msgtrans-rpc` (declarative `@MsgRpc` with KSP-generated stubs), `msgtrans-ws`
@@ -186,8 +188,8 @@ runReactor {
     launch { server.acceptLoop() }
 
     val conn = Transport.connect(this, host, port)
-    val response: ByteArray = conn.request(payload, bizType)     // suspends for the Response
-    conn.send(payload, bizType)                                  // one-way
+    val response: ByteArray = conn.request(payload, bizType, compression = Compression.Zstd)
+    conn.send(payload, bizType, compression = Compression.Zlib)
     conn.events().collect { msg -> /* server push */ }           // Flow of inbound one-way
     conn.close()
 }
@@ -205,7 +207,7 @@ connection scope), `close`.
 |---|---|
 | v0 (done) | wire-exact codec; Connection session with the contracts; request/response (timeouts, in-flight cap), one-way events, server push; over TCP; suite verified on macOS (kqueue) and Linux (io_uring/epoll, 2026-09-13) |
 | v1 | request timeout (needs a reactor timer); the Diagnostic plane (send confirmations); connection registry / broadcast on the server |
-| v1.5 | WebSocket transport; payload compression (Zstd/Zlib); ext-header / route tag |
+| v1.5 | WebSocket transport; ext-header / route tag (payload compression is complete) |
 | v2 | declarative `@MsgRpc` + KSP-generated client stub / server dispatcher / route ids |
 | v2+ | cross-language conformance fixtures; multi-reactor (thread-per-core) once neton-io provides it |
 
