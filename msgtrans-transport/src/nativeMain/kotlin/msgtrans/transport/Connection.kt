@@ -116,10 +116,19 @@ class ConnectionConfig(
     val maxDecompressedPayloadLength: Int = PayloadCompression.DEFAULT_MAX_DECOMPRESSED_SIZE,
     /** Compression applied to automatic handler responses. Requests and one-way sends choose per call. */
     val responseCompression: Compression = Compression.None,
+    /**
+     * Optional application admission rule for servers. When set, the first inbound frame must be
+     * a Request with exactly this biz type. Any Response, OneWay frame or different Request is a
+     * protocol fault and closes only that connection without running an application handler.
+     */
+    val requiredFirstRequestBizType: Int? = null,
 ) {
     init {
         require(maxDecompressedPayloadLength >= 0) {
             "maxDecompressedPayloadLength must not be negative"
+        }
+        require(requiredFirstRequestBizType == null || requiredFirstRequestBizType in 0..255) {
+            "requiredFirstRequestBizType must fit the one-byte biz_type field"
         }
     }
 }
@@ -384,8 +393,19 @@ class Connection internal constructor(
     // The read loop never runs the business handler: it completes responses inline (so a reverse
     // request or a pipelined response always advances) and hands requests to the handler loop.
     private suspend fun readLoop() {
+        var firstInboundPacket = true
         try {
             framed.incoming().collect { wirePacket ->
+                if (firstInboundPacket) {
+                    firstInboundPacket = false
+                    config.requiredFirstRequestBizType?.let { required ->
+                        if (wirePacket.type != PacketType.Request || wirePacket.bizType != required) {
+                            throw ProtocolException(
+                                "first packet must be Request with biz_type=$required",
+                            )
+                        }
+                    }
+                }
                 // This is the single inbound normalization point. Pending requests, application
                 // handlers and event collectors always receive plaintext and a None marker.
                 val packet = PayloadCompression.decompress(wirePacket, config.maxDecompressedPayloadLength)
