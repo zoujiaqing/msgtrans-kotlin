@@ -197,6 +197,7 @@ class Connection internal constructor(
     private var requestId: UInt = 0u   // per-session, refuses to wrap
     private var oneWayId: UInt = 0u    // separate, free to wrap
     private var requestHandler: (suspend (payload: ByteArray, bizType: Int) -> ByteArray)? = null
+    private var closeHandler: (() -> Unit)? = null
 
     private var closed = false
     private var readJob: Job? = null
@@ -212,6 +213,14 @@ class Connection internal constructor(
      */
     fun onRequest(handler: suspend (payload: ByteArray, bizType: Int) -> ByteArray) {
         requestHandler = handler
+    }
+
+    /**
+     * Observe the connection terminal state exactly once on its owning reactor thread.
+     * Applications use this to expire routing/presence state; the callback must stay non-blocking.
+     */
+    fun onClose(handler: () -> Unit) {
+        closeHandler = handler
     }
 
     /** Inbound one-way messages (server push, telemetry, etc.). */
@@ -591,6 +600,10 @@ class Connection internal constructor(
         readJob?.cancel()
         writeJob?.cancel()
         handlerJob?.cancel()
+        // Observation must not be able to break transport cleanup or strand the server's
+        // per-connection scope if application code throws.
+        runCatching { closeHandler?.invoke() }
+        closeHandler = null
         onShutdown?.invoke()
     }
 

@@ -19,6 +19,23 @@ import kotlin.test.assertTrue
  * close failing pending requests, and cancellation cleaning up the registry.
  */
 class ContractTest {
+    @Test
+    fun closeCallbackRunsOnce() = runReactor {
+        val port = 19529
+        val accepted = CompletableDeferred<Connection>()
+        val server = Transport.bind(this, "127.0.0.1", port) { accepted.complete(it) }
+        val serverJob = launch { server.acceptLoop() }
+        val client = Transport.connect(this, "127.0.0.1", port)
+        val peer = accepted.await()
+        var closed = 0
+        client.onClose { closed++ }
+        client.close()
+        client.close()
+        assertEquals(1, closed)
+        peer.close()
+        serverJob.cancelAndJoin()
+        server.close()
+    }
 
     @Test
     fun requestTimesOutWithoutResponseAndConnectionStaysUp() = runReactor {
