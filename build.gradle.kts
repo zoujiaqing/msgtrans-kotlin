@@ -34,7 +34,15 @@ subprojects {
                 description.set(pomDescriptions[sub.name] ?: "msgtrans - ${sub.name}")
                 url.set("https://github.com/zoujiaqing/msgtrans-kotlin")
                 licenses { license { name.set("Apache-2.0"); url.set("https://opensource.org/licenses/Apache-2.0") } }
-                developers { developer { name.set("Netonstream"); organization.set("Netonstream"); organizationUrl.set("https://netonstream.com") } }
+                developers {
+                    developer {
+                        id.set("zoujiaqing")
+                        name.set("zoujiaqing")
+                        email.set("zoujiaqing@gmail.com")
+                        organization.set("Neton Stream")
+                        organizationUrl.set("https://netonstream.com")
+                    }
+                }
                 scm {
                     url.set("https://github.com/zoujiaqing/msgtrans-kotlin")
                     connection.set("scm:git:git://github.com/zoujiaqing/msgtrans-kotlin.git")
