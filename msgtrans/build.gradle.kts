@@ -9,10 +9,7 @@ kotlin {
     iosArm64(); iosSimulatorArm64(); iosX64()
     sourceSets {
         commonMain.dependencies {
-            api("com.netonstream:neton-io-bytes:${project.version}")
-            api("com.netonstream:neton-io-codec:${project.version}")
-            api("com.netonstream:neton-io-core:${project.version}")
-            api("com.netonstream:neton-io-net:${project.version}")
+            api("com.netonstream:neton-io:${project.version}")
             api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
             implementation("com.squareup.zstd:zstd-kmp:0.4.0")
         }
