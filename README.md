@@ -271,3 +271,7 @@ dirs `20260912T211609Z-stats-overhead-c50`, `…-budget-c50-stats`, `…-budget-
 The optimization stays benchmark-driven (see SPEC): one variable per experiment, results kept under
 `bench/results/`, contracts (ordering, backpressure, cancellation, close) checked by tests in both
 variants.
+
+## License
+
+[Apache License 2.0](LICENSE).
