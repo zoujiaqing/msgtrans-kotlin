@@ -14,7 +14,7 @@ TARGET="${TARGET:-macosArm64}"
 TARGET_CAP="$(printf %s "${TARGET:0:1}" | tr "[:lower:]" "[:upper:]")${TARGET:1}"
 PASSIVE_PORT=18091
 KSERVER_PORT=8001
-BIN="$ROOT/msgtrans-transport/build/bin/$TARGET"
+BIN="$ROOT/msgtrans-bench/build/bin/$TARGET"
 CLIENT="$BIN/benchClientReleaseExecutable/benchClient.kexe"
 SERVER="$BIN/benchServerReleaseExecutable/benchServer.kexe"
 pids=(); cleanup() { for p in "${pids[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null; done; }
@@ -27,7 +27,7 @@ command -v jq >/dev/null || fail "jq not found"
 
 echo "== building Rust echo_server + Kotlin bench binaries"
 ( cd "$RUST" && cargo build --example echo_server --example echo_client_tcp ) >/tmp/interop-rustbuild.log 2>&1 || fail "rust build (see /tmp/interop-rustbuild.log)"
-( cd "$ROOT" && ./gradlew ":msgtrans-transport:linkBenchClientReleaseExecutable${TARGET_CAP}" ":msgtrans-transport:linkBenchServerReleaseExecutable${TARGET_CAP}" --no-daemon -q ) || fail "kotlin build"
+( cd "$ROOT" && ./gradlew ":msgtrans-bench:linkBenchClientReleaseExecutable${TARGET_CAP}" ":msgtrans-bench:linkBenchServerReleaseExecutable${TARGET_CAP}" --no-daemon -q ) || fail "kotlin build"
 
 wait_port() { for _ in $(seq 1 80); do nc -z 127.0.0.1 "$1" 2>/dev/null && return 0; sleep 0.25; done; return 1; }
 check_ok() { local s; s=$(jq -r .status <<<"$1"); local e; e=$(jq -r '.results.errors | length' <<<"$1"); [ "$s" = ok ] && [ "$e" = 0 ]; }

@@ -48,14 +48,14 @@ case "$(uname -s)-$(uname -m)" in
   *) echo "unsupported host $(uname -s)-$(uname -m)" >&2; exit 1;;
 esac
 TARGET_CAP="$(tr '[:lower:]' '[:upper:]' <<< "${TARGET:0:1}")${TARGET:1}"
-BIN="$ROOT/msgtrans-transport/build/bin/$TARGET"
+BIN="$ROOT/msgtrans-bench/build/bin/$TARGET"
 SERVER="$BIN/benchServerReleaseExecutable/benchServer.kexe"
 CLIENT="$BIN/benchClientReleaseExecutable/benchClient.kexe"
 
 if [[ $BUILD -eq 1 ]]; then
   echo "== building release binaries ($TARGET)"
-  ./gradlew ":msgtrans-transport:linkBenchServerReleaseExecutable$TARGET_CAP" \
-            ":msgtrans-transport:linkBenchClientReleaseExecutable$TARGET_CAP" --no-daemon -q
+  ./gradlew ":msgtrans-bench:linkBenchServerReleaseExecutable$TARGET_CAP" \
+            ":msgtrans-bench:linkBenchClientReleaseExecutable$TARGET_CAP" --no-daemon -q
 fi
 [[ -x "$SERVER" && -x "$CLIENT" ]] || { echo "binaries missing: $SERVER / $CLIENT" >&2; exit 1; }
 

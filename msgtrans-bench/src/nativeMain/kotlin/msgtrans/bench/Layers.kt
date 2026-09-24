@@ -1,4 +1,4 @@
-package msgtrans.transport.bench
+package msgtrans.bench
 
 import kotlinx.coroutines.CoroutineScope
 import msgtrans.core.Packet

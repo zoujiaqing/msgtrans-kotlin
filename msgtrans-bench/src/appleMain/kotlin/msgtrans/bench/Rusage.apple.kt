@@ -1,6 +1,6 @@
 @file:OptIn(ExperimentalForeignApi::class)
 
-package msgtrans.transport.bench
+package msgtrans.bench
 
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.alloc

@@ -43,7 +43,7 @@ drift. A 16-byte big-endian fixed header, then an optional ext header, then the 
   matching Request's id. OneWay and Request share the counter; the per-session request counter
   **refuses to wrap** (saturates and reports exhaustion — a reconnect gets a fresh session), and
   the one-way counter is separate and free to wrap.
-- The codec (`msgtrans-core`) is wire-exact and unit-tested against the exact byte layout. Payload
+- The codec (package `msgtrans.core`) is wire-exact and unit-tested against the exact byte layout. Payload
   compression is a separate transform: send compresses before framing; the connection read loop
   decompresses once before dispatch and resets the marker to None. Zstd uses level 3; zlib uses
   its default level. Expanded payloads above 16 MiB are rejected as protocol errors.
@@ -159,13 +159,16 @@ id counter is per-session and refuses to wrap; a reconnect gets a fresh session.
 
 ## 5. Modules
 
-| Module | Contents | Targets |
-|---|---|---|
-| `msgtrans-core` | `Packet`, `PacketCodec`, zstd/zlib transforms, types and flags | all native |
-| `msgtrans-transport` | `Connection` (actor), `Transport` client/server, `Message` | Apple + Linux (neton-io reactor) |
+| Module | Contents | Targets | Published |
+|---|---|---|---|
+| `msgtrans` | package `msgtrans.core`: `Packet`, `PacketCodec`, zstd/zlib transforms, types and flags; package `msgtrans.transport`: `Connection` (actor), `Transport` client/server, `Message` | Apple + Linux (neton-io reactor) | `com.netonstream:msgtrans` |
+| `msgtrans-bench` | the harness behind `bench/run.sh` | Apple + Linux | no |
 
-Future modules: `msgtrans-rpc` (declarative `@MsgRpc` with KSP-generated stubs), `msgtrans-ws`
-(WebSocket transport), `msgtrans-testkit` (cross-language conformance fixtures).
+One artifact rather than core/transport: the codec has no consumer without the session (the Rust
+implementation is likewise one crate), and splitting before the first release would have fixed a
+coordinate nobody needs. Future modules layer on top of `msgtrans`: `msgtrans-rpc` (declarative
+`@MsgRpc` with KSP-generated stubs), `msgtrans-ws` (WebSocket transport), `msgtrans-quic`,
+`msgtrans-testkit` (cross-language conformance fixtures).
 
 ---
 

@@ -51,17 +51,31 @@ descriptor, `Channel`, `CompletableDeferred`, reactor or driver type, so the int
 model and buffer implementation can be replaced without a source change for callers. `WriteMode`
 is an experimental performance knob and may change or disappear.
 
-Toolchain boundary: neton-io is consumed by msgtrans as a sibling `includeBuild` (source, not a
-published artifact), so both compile with the same Kotlin/Native version. KLIB binary
-compatibility across Kotlin versions is not guaranteed; pin one Kotlin version across the two
-repos until they are published with a stable ABI.
+Toolchain boundary: during development neton-io is consumed as a sibling `includeBuild` under the
+same coordinates it is published with, so both compile with one Kotlin/Native version. KLIB binary
+compatibility across Kotlin versions is not guaranteed; a consumer pins the Kotlin version of the
+release it depends on.
 
 ## Modules
 
-- `msgtrans-core` — `Packet`, `PacketCodec` (wire-exact, big-endian), zstd/zlib payload codecs,
-  types. All native targets.
-- `msgtrans-transport` — the `Connection` session, `Transport` client/server, the `ClientTransport`/
-  `ServerTransport` protocol seam (TCP; WebSocket/QUIC declared). Runs on the neton-io reactor.
+One published artifact, `com.netonstream:msgtrans`, the way the Rust crate is one crate:
+
+- package `msgtrans.core` — `Packet`, `PacketCodec` (wire-exact, big-endian), zstd/zlib payload
+  codecs, types.
+- package `msgtrans.transport` — the `Connection` session, `Transport` client/server, the
+  `ClientTransport`/`ServerTransport` protocol seam (TCP; WebSocket/QUIC declared). Runs on the
+  neton-io reactor.
+
+Additional protocols (`msgtrans-ws`, `msgtrans-quic`) and the RPC layer are add-on modules that
+depend on `msgtrans`; nothing needs the codec without the session, so the two are not split.
+`msgtrans-bench` (the harness behind `bench/run.sh`) is not published.
+
+```kotlin
+dependencies { implementation("com.netonstream:msgtrans:0.1.0") }
+```
+
+Consumers must compile with the same Kotlin version as the release (2.4.0): the artifacts are
+klibs, and klib binary compatibility is bound to the compiler version.
 
 ## Usage
 
@@ -100,9 +114,8 @@ it — so a connection reference can be shared with worker threads safely.
 ## Build and test
 
 ```bash
-./gradlew :msgtrans-core:macosArm64Test
-./gradlew :msgtrans-transport:macosArm64Test   # request/response over real TCP
-./gradlew :msgtrans-transport:linkDebugTestLinuxX64   # cross-compile for Linux
+./gradlew :msgtrans:macosArm64Test              # codec + request/response over real TCP
+./gradlew :msgtrans:linkDebugTestLinuxX64       # cross-compile for Linux
 ```
 
 ## Status
@@ -111,9 +124,9 @@ Wire-exact Packet codec (verified against the exact byte layout), zstd/zlib comp
 (request/response with timeouts and an in-flight cap, one-way events, server push) with the
 contracts above. Request timeouts use the neton-io reactor timer.
 
-Verified (2026-09-15), reproducible: `msgtrans-transport:linuxX64Test` — 22 cases (ContractTest 8,
+Verified (2026-09-15), reproducible: `msgtrans:linuxX64Test` — 22 cases (ContractTest 8,
 FaultIsolation 1, OutboundBudget 3, RequestDeadline 2, RequestResponse 6, WriteMode 2) — passes
-with 0 failures on a Rocky Linux 9.8 / kernel 5.14 / x86_64 host under **epoll**; `msgtrans-core`
+with 0 failures on a Rocky Linux 9.8 / kernel 5.14 / x86_64 host under **epoll**; the codec cases
 passes there too, and macOS (kqueue) passes the same cases. The pre-compression 20-case suite also
 passed under io_uring and io_uring at SQ depth 8 on that host on 2026-09-13; the host currently has
 io_uring disabled at the kernel level, so the two new compression transport cases have not been
