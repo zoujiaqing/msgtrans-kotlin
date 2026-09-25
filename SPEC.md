@@ -366,3 +366,21 @@ Contracts (§3, §4) must hold in every step; all existing tests must pass.
 `INLINE` vs `CHANNEL`: 1 reactor 1.035 (6/8), 4 reactors 1.010 (7/8) — consistent but small in *throughput*,
 because this host is client-bound (the server gets ≈ 1.7 of 4 cores). From here msgtrans rounds also report
 **server efficiency (requests per server CPU-second)**; steps 1 and 2 are re-measured together as a 2×2.
+
+**Steps 1–2 as a 2×2 (raw `bench/results/2026-09-26-153-2x2-raw.txt`; 6 paired rounds; efficiency = requests per
+server CPU-second, relative to inbound Channel + CHANNEL writes).**
+
+| variant | 1 reactor | 4 reactors |
+|---|---|---|
+| INLINE writes only | 0.942 (2/6) | 0.988 (2/6) |
+| reactor-local inbound queue only (step 2) | 0.998 (3/6) | 1.051 (4/6) |
+| both | 1.044 (3/6) | 1.053 (5/6) |
+
+The run-to-run spread for msgtrans on this host is ±10% (one-reactor runs 103k–145k req/s), so ±5% effects are
+not resolved by 6 rounds. Decisions: **keep step 2** (neutral to +5%, removes atomics from the hot path, own
+contract tests); **do not make INLINE the default** (+3.5% in the previous round, −6% at one reactor here).
+
+The larger per-core drop at 4 reactors (≈ 125k → ≈ 72–82k req per server core-second) is most likely structural
+rather than a defect: 12 connections over 4 reactors give each reactor ≈ 3 events per `epoll_wait` instead of ≈ 10,
+i.e. more syscalls and wake-ups per request — the usual cost of thread-per-core under light per-reactor load. To be
+confirmed with more connections per reactor (48+) when a separate client host is available.
