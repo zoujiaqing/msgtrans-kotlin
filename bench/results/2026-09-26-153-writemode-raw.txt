@@ -1,0 +1,38 @@
+# host=service load=0.92 md5 7e2cadae44c0c5a078eeb81d4a573b91
+# warmup
+# (write_mode reactors total_req_s errs)
+channel r1 125912 errs=0
+inline r1 135758 errs=0
+channel r4 132454 errs=0
+inline r4 133963 errs=0
+channel r1 109863 errs=0
+inline r1 113893 errs=0
+channel r4 131967 errs=0
+inline r4 132389 errs=0
+channel r1 116550 errs=0
+inline r1 104281 errs=0
+channel r4 118026 errs=0
+inline r4 136637 errs=0
+channel r1 130052 errs=0
+inline r1 131599 errs=0
+channel r4 139153 errs=0
+inline r4 140224 errs=0
+channel r1 114014 errs=0
+inline r1 103793 errs=0
+channel r4 123806 errs=0
+inline r4 117670 errs=0
+channel r1 99154 errs=0
+inline r1 105153 errs=0
+channel r4 118665 errs=0
+inline r4 119676 errs=0
+channel r1 104130 errs=0
+inline r1 107560 errs=0
+channel r4 132409 errs=0
+inline r4 140552 errs=0
+channel r1 96565 errs=0
+inline r1 103442 errs=0
+channel r4 122733 errs=0
+inline r4 142292 errs=0
+# done
+
+[exited with code 0]

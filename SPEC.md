@@ -361,3 +361,8 @@ where applicable):
 3. `events()` keeps its Channel: its collector may live on another thread, and it is not on the rpc path.
 
 Contracts (§3, §4) must hold in every step; all existing tests must pass.
+
+**Step 1 result (raw `bench/results/2026-09-26-153-writemode-raw.txt`, 8 paired rounds, 0 errors).** Server
+`INLINE` vs `CHANNEL`: 1 reactor 1.035 (6/8), 4 reactors 1.010 (7/8) — consistent but small in *throughput*,
+because this host is client-bound (the server gets ≈ 1.7 of 4 cores). From here msgtrans rounds also report
+**server efficiency (requests per server CPU-second)**; steps 1 and 2 are re-measured together as a 2×2.
