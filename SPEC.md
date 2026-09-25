@@ -278,3 +278,32 @@ belongs to neton-io and is out of scope here; see the neton-io SPEC.
   slow-consumer behavior alongside throughput.
 - **Contracts stay, implementation is replaceable**: request cancellation, length limits, buffer
   release, close behavior and backpressure hold across any execution-model change.
+
+---
+
+## 10. Multi-reactor server (2026-09-26; neton-io SPEC §18.1)
+
+The server accepted every connection on the reactor that called `bind`, so ingest used one core
+regardless of load; neton-io's four-core result (§16/§17c there: 311k vs geario 267k) did not reach
+msgtrans. `bind` gains a reactor count:
+
+```kotlin
+suspend fun Transport.bind(scope, transport, config = ConnectionConfig(), reactors: Int = 1, onConnection: (Connection) -> Unit): TransportServer
+```
+
+- `reactors = 1` (default): unchanged — the calling reactor accepts and owns every connection.
+- `reactors > 1` (TCP only; other transports reject it): built on neton-io `listenGroup`. The
+  calling reactor accepts; each connection is handed to a reactor round-robin and owned by it for
+  life. Its scope is **that reactor's dispatcher + a `SupervisorJob` whose parent is the server
+  scope's `Job`**, so (1) the connection's owner thread (§3 "dual entry") is its reactor, (2)
+  cancelling the server scope still tears down every connection on every reactor, and (3) one
+  connection's failure stays local (P1-4).
+- `onConnection` runs **on the connection's reactor thread**. With `reactors > 1` that is not the
+  caller's thread: shared state it touches must be thread-safe. This is the only contract change,
+  and it is opt-in.
+- `acceptLoop()` serves until `close()`; `close()` stops accepting, then the worker reactors exit
+  once their connections are gone.
+
+Acceptance: existing tests unchanged; new test — `reactors = 2`, 8 clients, request/response works,
+handlers observed on ≥ 2 threads, cancelling the server scope closes connections on both reactors.
+Bench on 153 (framed + rpc, 12 conns): `reactors = 4` ≥ 2× `reactors = 1`, paired rounds.
