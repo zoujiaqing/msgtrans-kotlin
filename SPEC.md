@@ -307,3 +307,18 @@ suspend fun Transport.bind(scope, transport, config = ConnectionConfig(), reacto
 Acceptance: existing tests unchanged; new test — `reactors = 2`, 8 clients, request/response works,
 handlers observed on ≥ 2 threads, cancelling the server scope closes connections on both reactors.
 Bench on 153 (framed + rpc, 12 conns): `reactors = 4` ≥ 2× `reactors = 1`, paired rounds.
+
+**Result (2026-09-26, 153, epoll, 128 B, 8 paired rounds, 0 errors; raw `bench/results/2026-09-26-153-multireactor-raw.txt`).**
+Load = 3 `benchClient` processes (one reactor each) on the same 4-core host.
+
+| mode | conns | 1 reactor | 4 reactors | paired 4/1 (min..max) |
+|---|---|---|---|---|
+| framed | 12 | 141,782 | 196,108 | 1.46 (1.25..1.77) |
+| framed | 48 | 133,049 | 209,433 | 1.69 (1.37..1.99) |
+| rpc | 12 | 117,081 | 128,378 | 1.13 (1.08..1.33) |
+| rpc | 48 | 120,374 | 148,478 | 1.20 (1.16..1.49) |
+
+The ≥ 2× acceptance is **not met on this host**. Working hypothesis, not yet proven: the load generator,
+not the server — three Kotlin client processes doing the same framing/actor work as the server share the
+4 cores with a 4-reactor server, and rpc (the heaviest client) scales worst. A per-process CPU measurement
+(`run-mtcpu.sh`) is queued to confirm or refute it before anything is changed.
