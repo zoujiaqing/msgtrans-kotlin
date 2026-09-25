@@ -337,3 +337,27 @@ not the server — three Kotlin client processes doing the same framing/actor wo
 2. **rpc loses about a third of its per-core efficiency at 4 reactors** (≈ 116k → ≈ 70–78k req/s per server
    core); framed loses much less. rpc allocates far more per request (Packet, payload arrays, channel hops), so
    the leading suspect is GC coordination across four allocating threads. A per-thread profile is queued.
+
+## 11. Reactor-local hot path (2026-09-26)
+
+**Evidence** (per-thread profile, rpc, 1 vs 4 reactors, raw `bench/results/2026-09-26-153-rpcprof-raw.txt`): the
+GC thread is ≈ 1% in both, so GC coordination is *not* why rpc loses per-core efficiency at 4 reactors. What
+grows is user time in the reactor threads (32.5% → 40%), led by the actor machinery: kotlinx `BufferedChannel`
+(its `AtomicArray` bounds checks alone 1.3–1.4%), `CancellableContinuationImpl.dispatchResume`, context
+lookups. (That bench binary predates neton-io §19.3/§19.5; re-profile after these steps.)
+
+Per request the server path is: decode → `inboundRequests` Channel → handler coroutine → response →
+`outbound` Channel → writer coroutine → socket — two thread-safe channel hops and three coroutines. Every
+mutating entry point already runs on the owning reactor (`withContext(owner)`, §3 "dual entry"), so these
+queues need no atomics.
+
+Steps, one variable each (153, rpc, 1 and 4 reactors, paired rounds, `echo-client-fair`-style fairness check
+where applicable):
+1. `WriteMode.INLINE` (single-writer deque, no outbound Channel; exists since B1) vs `CHANNEL` — no code change,
+   `MSGTRANS_WRITE_MODE=inline`. B1's "no stable benefit" was measured on the old stack at one reactor on macOS.
+2. Inbound requests through a reactor-local bounded queue and a parked handler (neton-io §19.3 style) instead of
+   the `inboundRequests` Channel. Same contracts: bounded (`inboundCapacity`, read loop stalls when full), handler
+   off the read path, close/cancel semantics unchanged.
+3. `events()` keeps its Channel: its collector may live on another thread, and it is not on the rpc path.
+
+Contracts (§3, §4) must hold in every step; all existing tests must pass.
