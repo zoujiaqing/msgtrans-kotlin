@@ -190,7 +190,9 @@ class Connection internal constructor(
     /** The live outbound byte count, so tests can assert the budget invariant directly. */
     internal val outboundQueuedBytes: Long get() = queuedBytes
     private val inFlightWaiters = ArrayDeque<Pending>()
-    private val inboundRequests = Channel<Packet>(config.inboundCapacity)
+    // SPEC §11 step 2: reactor-local, allocation-free handoff from the read loop to the handler
+    // loop (same bound and backpressure as the Channel it replaces).
+    private val inboundRequests = ReactorQueue<Packet>(config.inboundCapacity, owner)
     private val inboundEvents = Channel<Message>(config.inboundCapacity)
 
     private val pending = HashMap<UInt, CompletableDeferred<Packet>>()
@@ -442,7 +444,8 @@ class Connection internal constructor(
     // handler cannot block response completion or deadlock on its own reverse request.
     private suspend fun handlerLoop() {
         try {
-            for (packet in inboundRequests) {
+            while (true) {
+                val packet = inboundRequests.receive() ?: break
                 val response = requestHandler?.invoke(packet.payload, packet.bizType) ?: EMPTY
                 val encoded = prepareOutboundPayload(response, config.responseCompression)
                 enqueue(Packet(
