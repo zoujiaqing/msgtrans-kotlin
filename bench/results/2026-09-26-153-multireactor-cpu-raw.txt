@@ -1,0 +1,10 @@
+# host=service cores=4 load=5.28
+framed r1 req_s=122741 server_cores=1.01 client_cores=1.46
+framed r4 req_s=194173 server_cores=1.75 client_cores=1.82
+rpc r1 req_s=115415 server_cores=1.00 client_cores=2.04
+rpc r4 req_s=130126 server_cores=1.64 client_cores=1.90
+framed r1 req_s=146739 server_cores=1.02 client_cores=1.61
+framed r4 req_s=200599 server_cores=1.78 client_cores=1.83
+rpc r1 req_s=117985 server_cores=1.00 client_cores=2.08
+rpc r4 req_s=115270 server_cores=1.68 client_cores=1.82
+# done

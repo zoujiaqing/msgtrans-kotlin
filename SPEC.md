@@ -322,3 +322,18 @@ The ≥ 2× acceptance is **not met on this host**. Working hypothesis, not yet 
 not the server — three Kotlin client processes doing the same framing/actor work as the server share the
 4 cores with a 4-reactor server, and rpc (the heaviest client) scales worst. A per-process CPU measurement
 (`run-mtcpu.sh`) is queued to confirm or refute it before anything is changed.
+
+**CPU accounting (raw `bench/results/2026-09-26-153-multireactor-cpu-raw.txt`; utime+stime over 3 s mid-run).**
+
+| run | req/s | server cores | client cores | server req/s per core |
+|---|---|---|---|---|
+| framed, 1 reactor | 123k / 147k | 1.01 | 1.5–1.6 | ≈ 135k |
+| framed, 4 reactors | 194k / 201k | 1.75–1.78 | 1.8 | ≈ 112k |
+| rpc, 1 reactor | 115k / 118k | 1.00 | 2.0–2.1 | ≈ 116k |
+| rpc, 4 reactors | 130k / 115k | 1.64–1.68 | 1.8–1.9 | **≈ 70–78k** |
+
+1. The host is saturated: with 4 reactors the server gets ≈ 1.7 cores because the clients use ≈ 1.9. The 2×
+   acceptance cannot be measured on a 4-core host with this load generator; it needs a separate client host.
+2. **rpc loses about a third of its per-core efficiency at 4 reactors** (≈ 116k → ≈ 70–78k req/s per server
+   core); framed loses much less. rpc allocates far more per request (Packet, payload arrays, channel hops), so
+   the leading suspect is GC coordination across four allocating threads. A per-thread profile is queued.
