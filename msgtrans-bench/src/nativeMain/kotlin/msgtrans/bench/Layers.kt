@@ -16,6 +16,7 @@ import neton.io.core.IoStream
 import neton.io.core.serve
 import neton.io.net.connect
 import neton.io.net.listen
+import neton.io.net.listenGroup
 import kotlinx.coroutines.launch
 
 /**
@@ -42,7 +43,14 @@ object RawLayer : BenchLayer {
     override suspend fun open(scope: CoroutineScope, cfg: BenchConfig): BenchConn =
         RawConn(connect(cfg.host, cfg.port), cfg.payload)
 
-    suspend fun serve(scope: CoroutineScope, host: String, port: Int) {
+    suspend fun serve(scope: CoroutineScope, host: String, port: Int, reactors: Int = 1) {
+        if (reactors > 1) {
+            // neton-io SPEC §18.1: connections spread over `reactors` reactors.
+            val group = listenGroup(host, port, reactors)
+            println("READY mode=raw host=$host port=$port reactors=$reactors")
+            group.serve { conn -> echoBytes(conn) }
+            return
+        }
         val server = listen(host, port)
         println("READY mode=raw host=$host port=$port")
         while (true) {
@@ -102,7 +110,13 @@ object FramedLayer : BenchLayer {
     override suspend fun open(scope: CoroutineScope, cfg: BenchConfig): BenchConn =
         FramedConn(Io(connect(cfg.host, cfg.port)), cfg.payload)
 
-    suspend fun serve(scope: CoroutineScope, host: String, port: Int) {
+    suspend fun serve(scope: CoroutineScope, host: String, port: Int, reactors: Int = 1) {
+        if (reactors > 1) {
+            val group = listenGroup(host, port, reactors)
+            println("READY mode=framed host=$host port=$port reactors=$reactors")
+            group.serve { conn -> echoFrames(conn) }
+            return
+        }
         val server = listen(host, port)
         println("READY mode=framed host=$host port=$port")
         while (true) {
@@ -172,11 +186,12 @@ object RpcLayer : BenchLayer {
         RpcConn(Transport.connect(scope, cfg.host, cfg.port,
             ConnectionConfig(requestTimeoutMillis = rpcTimeoutMs())), cfg.payload)
 
-    suspend fun serve(scope: CoroutineScope, host: String, port: Int) {
-        val server = Transport.bind(scope, host, port) { conn ->
+    suspend fun serve(scope: CoroutineScope, host: String, port: Int, reactors: Int = 1) {
+        // msgtrans SPEC §10: onConnection runs on each connection's reactor; it touches no shared state.
+        val server = Transport.bind(scope, host, port, reactors = reactors) { conn ->
             conn.onRequest { payload, _ -> payload }
         }
-        println("READY mode=rpc host=$host port=$port")
+        println("READY mode=rpc host=$host port=$port" + if (reactors > 1) " reactors=$reactors" else "")
         server.acceptLoop()
     }
 }

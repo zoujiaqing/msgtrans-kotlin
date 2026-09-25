@@ -56,16 +56,17 @@ fun benchServerMain(args: Array<String>) {
     dumpStatsOnTerm()
     val kv = args.associate { a -> a.substringBefore('=') to a.substringAfter('=', "") }
     val mode = kv["mode"] ?: run {
-        println("usage: benchServer mode=raw|framed|rpc [host=0.0.0.0] [port=9000]")
+        println("usage: benchServer mode=raw|framed|rpc [host=0.0.0.0] [port=9000] [reactors=1]")
         exitProcess(64)
     }
     val host = kv["host"] ?: "0.0.0.0"
     val port = kv["port"]?.toIntOrNull() ?: 9000
+    val reactors = kv["reactors"]?.toIntOrNull() ?: 1
     runReactor {
         when (mode) {
-            "raw" -> RawLayer.serve(this, host, port)
-            "framed" -> FramedLayer.serve(this, host, port)
-            "rpc" -> RpcLayer.serve(this, host, port)
+            "raw" -> RawLayer.serve(this, host, port, reactors)
+            "framed" -> FramedLayer.serve(this, host, port, reactors)
+            "rpc" -> RpcLayer.serve(this, host, port, reactors)
             else -> {
                 println("unknown mode '$mode' (raw|framed|rpc)")
                 exitProcess(64)
