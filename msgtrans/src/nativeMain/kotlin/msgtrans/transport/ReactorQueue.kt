@@ -43,13 +43,26 @@ internal class ReactorQueue<T : Any>(private val capacity: Int, private val owne
     private var watchedA: Job? = null; private var handleA: DisposableHandle? = null
     private var watchedB: Job? = null; private var handleB: DisposableHandle? = null
 
+    // SPEC §12 step 2: the common case (hand over or append) does not suspend and, with the only
+    // other path a tail call, [send] compiles without a state machine — nothing allocated per item.
     suspend fun send(item: T) {
+        if (offer(item)) return
+        return sendSlow(item)
+    }
+
+    /** Hand [item] to a parked receiver or append it; false when the queue is full. */
+    private fun offer(item: T): Boolean {
+        if (closed) throw ClosedException()
+        val c = takeWaiter
+        if (c != null) { takeWaiter = null; c.intercepted().resume(item); return true }
+        if (items.size < capacity) { items.addLast(item); return true }
+        return false
+    }
+
+    private suspend fun sendSlow(item: T) {
         while (true) {
-            if (closed) throw ClosedException()
-            val c = takeWaiter
-            if (c != null) { takeWaiter = null; c.intercepted().resume(item); return }
-            if (items.size < capacity) { items.addLast(item); return }
             parkPut()
+            if (offer(item)) return
         }
     }
 

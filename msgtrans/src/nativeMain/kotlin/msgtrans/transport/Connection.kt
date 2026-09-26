@@ -198,7 +198,7 @@ class Connection internal constructor(
     private val pending = HashMap<UInt, CompletableDeferred<Packet>>()
     private var requestId: UInt = 0u   // per-session, refuses to wrap
     private var oneWayId: UInt = 0u    // separate, free to wrap
-    private var requestHandler: (suspend (payload: ByteArray, bizType: Int) -> ByteArray)? = null
+    private var requestHandler: RequestHandler? = null
     private var closeHandler: (() -> Unit)? = null
 
     private var closed = false
@@ -213,7 +213,7 @@ class Connection internal constructor(
      * offload explicitly** (e.g. `withContext(Dispatchers.Default) { … }`), or it blocks the whole
      * reactor — the task budget bounds queue draining, not time spent inside one handler call.
      */
-    fun onRequest(handler: suspend (payload: ByteArray, bizType: Int) -> ByteArray) {
+    fun onRequest(handler: RequestHandler) {
         requestHandler = handler
     }
 
@@ -295,10 +295,21 @@ class Connection internal constructor(
         throw ConnectionClosedException()
     }
 
-    /** Put [packet] on the outbound path according to [writeMode]; suspends under backpressure. */
-    private suspend fun enqueue(packet: Packet) {
+    /** Room for [bytes] on the outbound path right now (the non-suspending check of [awaitOutboundRoom]). */
+    private fun hasOutboundRoom(bytes: Long): Boolean {
+        if (closed) return false
+        val slotFree = writeMode == WriteMode.CHANNEL || sendQueue.size < mailboxCapacity
+        return slotFree && (queuedBytes == 0L || queuedBytes + bytes <= config.maxOutboundBytes)
+    }
+
+    /**
+     * Put [packet] on the outbound path according to [writeMode]; suspends under backpressure.
+     * SPEC §12 step 3: inline, and [awaitOutboundRoom] is entered only when there is no room, so the
+     * common case adds no coroutine frame.
+     */
+    private suspend inline fun enqueue(packet: Packet) {
         checkOutboundSize(packet)
-        awaitOutboundRoom(packetBytes(packet), null)
+        if (!hasOutboundRoom(packetBytes(packet))) awaitOutboundRoom(packetBytes(packet), null)
         queuedBytes += packetBytes(packet)
         if (writeMode == WriteMode.CHANNEL) {
             outbound.send(packet)
@@ -406,7 +417,8 @@ class Connection internal constructor(
     private suspend fun readLoop() {
         var firstInboundPacket = true
         try {
-            framed.incoming().collect { wirePacket ->
+            // SPEC §12 step 1: neton-io's inline pull loop — no Flow collector, nothing allocated per frame.
+            framed.receiveEach { wirePacket ->
                 if (firstInboundPacket) {
                     firstInboundPacket = false
                     config.requiredFirstRequestBizType?.let { required ->
@@ -446,7 +458,7 @@ class Connection internal constructor(
         try {
             while (true) {
                 val packet = inboundRequests.receive() ?: break
-                val response = requestHandler?.invoke(packet.payload, packet.bizType) ?: EMPTY
+                val response = requestHandler?.handle(packet.payload, packet.bizType) ?: EMPTY
                 val encoded = prepareOutboundPayload(response, config.responseCompression)
                 enqueue(Packet(
                     PacketType.Response, packet.messageId, packet.bizType, encoded,
