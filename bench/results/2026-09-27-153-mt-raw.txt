@@ -1,0 +1,72 @@
+# host=service load=1.91
+raw thr=177735.4 req=1686484 yields_per_req=0.000 syscalls_per_req=0.398 cpu_ns_per_req=5737
+framed thr=116959.4 req=1167099 yields_per_req=1.177 syscalls_per_req=1.480 cpu_ns_per_req=8324
+rpc thr=87604.9 req=888088 yields_per_req=2.462 syscalls_per_req=2.906 cpu_ns_per_req=8903
+raw thr=207264.5 req=2070568 yields_per_req=0.000 syscalls_per_req=0.409 cpu_ns_per_req=4769
+framed thr=152682.6 req=1499523 yields_per_req=1.189 syscalls_per_req=1.493 cpu_ns_per_req=6519
+rpc thr=83376.2 req=849947 yields_per_req=2.418 syscalls_per_req=2.851 cpu_ns_per_req=9417
+raw thr=200940.0 req=2017185 yields_per_req=0.000 syscalls_per_req=0.379 cpu_ns_per_req=4783
+framed thr=141704.2 req=1467417 yields_per_req=1.187 syscalls_per_req=1.495 cpu_ns_per_req=6555
+rpc thr=87602.4 req=880777 yields_per_req=2.467 syscalls_per_req=2.911 cpu_ns_per_req=9021
+== framed callgrind requests(warmup+measured)=162822 file=cgmt-framed.out
+== rpc callgrind requests(warmup+measured)=0 file=cgmt-rpc.out
+25 ???:kfun:neton.io.net.UringReactor#<init>(){}
+24 ???:kfun:kotlinx.cinterop#<get-cstr>__at__kotlin.String(){}kotlinx.cinterop.CValues<kotlinx.cinterop.ByteVarOf<kotlin.Byte>>
+18 ???:kfun:kotlin#lazy(kotlin.Function0<0:0>){0§<kotlin.Any?>}kotlin.Lazy<0:0>
+17 ???:kfun:kotlinx.coroutines.channels.$init_global#internal
+12 ???:CreateUninitializedString
+10 ???:kfun:neton.io.net.Reactor#<init>(){}
+10 ???:kfun:kotlinx.coroutines#newFixedThreadPoolContext(kotlin.Int;kotlin.String){}kotlinx.coroutines.CloseableCoroutineDispatcher
+10 ???:kfun:kotlinx.coroutines.channels.ChannelSegment#<init>(kotlin.Long;kotlinx.coroutines.channels.ChannelSegment<1:0>?;kotlinx.coroutines.channels.BufferedChannel<1:0>?;kotlin.Int){}
+8 ???:kfun:kotlin.collections#copyOfUninitializedElements__at__kotlin.Array<0:0>(kotlin.Int;kotlin.Int){0§<kotlin.Any?>}kotlin.Array<0:0>
+7 ???:kfun:kotlinx.coroutines.$init_global#internal.36
+6 ???:kfun:msgtrans.bench#benchServerMain(kotlin.Array<kotlin.String>){}
+6 ???:kfun:kotlinx.coroutines.CoroutineStart.$init_global#internal
+6 ???:kfun:kotlin.enums#enumEntries(kotlin.Array<0:0>){0§<kotlin.Enum<0:0>>}kotlin.enums.EnumEntries<0:0>
+5 ???:kfun:msgtrans.transport.WriteMode.$init_global#internal
+5 ???:kfun:msgtrans.core.Compression.$init_global#internal
+# done
+# ---- mt2 (neton-io Framed inline)
+# host=service load=2.05
+raw thr=133556.2 req=1347182 yields_per_req=0.000 syscalls_per_req=0.346 cpu_ns_per_req=7219
+framed thr=171899.1 req=1723596 yields_per_req=0.745 syscalls_per_req=1.048 cpu_ns_per_req=5667
+rpc thr=94943.0 req=948150 yields_per_req=2.036 syscalls_per_req=2.492 cpu_ns_per_req=8341
+raw thr=201162.5 req=2017377 yields_per_req=0.000 syscalls_per_req=0.361 cpu_ns_per_req=4781
+framed thr=175410.4 req=1749208 yields_per_req=0.737 syscalls_per_req=1.057 cpu_ns_per_req=5601
+rpc thr=80221.7 req=795223 yields_per_req=1.996 syscalls_per_req=2.421 cpu_ns_per_req=10185
+raw thr=131384.8 req=1321153 yields_per_req=0.011 syscalls_per_req=0.332 cpu_ns_per_req=7377
+framed thr=143778.2 req=1381709 yields_per_req=0.742 syscalls_per_req=1.069 cpu_ns_per_req=7083
+rpc thr=94257.6 req=946671 yields_per_req=2.028 syscalls_per_req=2.477 cpu_ns_per_req=8252
+== framed callgrind requests(warmup+measured)=180045 file=cgmt2-framed.out.1
+180045 ???:kfun:msgtrans.core.PacketCodec#decode(neton.io.bytes.Buffer){}msgtrans.core.Packet?
+180045 ???:kfun:msgtrans.bench.FramedLayer.FramedLayer$echoFrames$2.call#internal
+180045 ???:kfun:kotlin.collections#copyOfUninitializedElements__at__kotlin.ByteArray(kotlin.Int;kotlin.Int){}kotlin.ByteArray
+168 ???:kfun:kotlin#lazy(kotlin.Function0<0:0>){0§<kotlin.Any?>}kotlin.Lazy<0:0>
+52 ???:kfun:msgtrans.bench.FramedLayer.$echoFramesCOROUTINE$6.invokeSuspend#internal
+26 ???:Kotlin_getCurrentStackTrace
+26 ???:kfun:neton.io.net.ReadinessReactor#closeStream(kotlin.Int){}
+26 ???:kfun:neton.io.core.Io#<init>(neton.io.core.IoStream){}
+26 ???:kfun:kotlin.Throwable#<init>(kotlin.String?;kotlin.Throwable?){}
+25 ???:kfun:neton.io.bytes.Buffer.allocate#internal
+24 ???:kfun:neton.io.net.ReadinessReactor#<init>(neton.io.net.Poller){}
+17 ???:kfun:kotlinx.coroutines.channels.$init_global#internal
+15 ???:kfun:kotlin.coroutines.CoroutineContext.CoroutineContext$plus$1.invoke#internal
+14 ???:kfun:neton.io.net.TcpServer#accept#suspend(kotlin.coroutines.Continuation<neton.io.core.IoStream>){}kotlin.Any
+14 ???:kfun:neton.io.net.ReadinessReactor.watchCancellation#internal
+== rpc callgrind requests(warmup+measured)=94510 file=cgmt2-rpc.out.1
+189020 ???:kfun:msgtrans.transport.Connection.$handlerLoopCOROUTINE$10.invokeSuspend#internal
+94510 ???:kfun:msgtrans.transport.Connection.Connection$readLoop$2.emit#internal
+94510 ???:kfun:msgtrans.transport.Connection.Connection$readLoop$2.$emitCOROUTINE$1.invokeSuspend#internal
+94510 ???:kfun:msgtrans.transport.Connection.awaitOutboundRoom#internal
+94510 ???:kfun:msgtrans.transport.Connection.$writeLoopCOROUTINE$3.invokeSuspend#internal
+94510 ???:kfun:msgtrans.core.PacketCodec#decode(neton.io.bytes.Buffer){}msgtrans.core.Packet?
+94510 ???:kfun:kotlin.collections#copyOfUninitializedElements__at__kotlin.ByteArray(kotlin.Int;kotlin.Int){}kotlin.ByteArray
+5966 ???:kfun:kotlinx.coroutines.channels.ChannelSegment#<init>(kotlin.Long;kotlinx.coroutines.channels.ChannelSegment<1:0>?;kotlinx.coroutines.channels.BufferedChannel<1:0>?;kotlin.Int){}
+2988 ???:kfun:kotlin.collections#copyOfUninitializedElements__at__kotlin.Array<0:0>(kotlin.Int;kotlin.Int){0§<kotlin.Any?>}kotlin.Array<0:0>
+2952 ???:kfun:kotlinx.coroutines.internal#findSegmentInternal__at__0:0(kotlin.Long;kotlin.Function2<kotlin.Long0:00:0>){0§<kotlinx.coroutines.internal.Segment<0:0>>}kotlinx.coroutines.internal.Segment
+180 ???:kfun:kotlin#lazy(kotlin.Function0<0:0>){0§<kotlin.Any?>}kotlin.Lazy<0:0>
+130 ???:kfun:msgtrans.transport.Connection#<init>(neton.io.core.IoStream;kotlinx.coroutines.CoroutineScope;msgtrans.transport.ConnectionConfig){}
+102 ???:kfun:kotlinx.atomicfu.locks.SynchronizedObject#lock(){}
+75 ???:kfun:kotlin.collections.HashMap#<init>(kotlin.Int){}
+68 ???:kfun:kotlinx.atomicfu.locks.SynchronizedObject#unlock(){}
+# done
