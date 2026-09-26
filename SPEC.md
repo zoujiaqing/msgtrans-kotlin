@@ -384,3 +384,28 @@ The larger per-core drop at 4 reactors (≈ 125k → ≈ 72–82k req per server
 rather than a defect: 12 connections over 4 reactors give each reactor ≈ 3 events per `epoll_wait` instead of ≈ 10,
 i.e. more syscalls and wake-ups per request — the usual cost of thread-per-core under light per-reactor load. To be
 confirmed with more connections per reactor (48+) when a separate client host is available.
+
+## 12. Allocation-free request path (2026-09-27; neton-io SPEC §24)
+
+**Evidence** (153, 1 reactor pinned, 12 connections, 64 B; raw `bench/results/2026-09-27-153-mt-raw.txt`). On the
+zero-allocation neton-io, `raw` runs at ~200k req/s with no GC activity, `framed` at ~172k (3 allocations per
+request: decoded Packet, payload copy, response Packet; 0.74 GC `sched_yield` per request) and `rpc` at ~90k
+(**8 allocations per request**, 2.0 GC yields per request). callgrind names the rpc allocation sites: the read
+loop's Flow collection (the collector's `emit` and its continuation, 2), `awaitOutboundRoom` (a suspend
+function called on every enqueue, 1), the write loop (1), the handler loop (2: the response Packet and the
+suspend-lambda handler invocation), decode (Packet + payload copy, 2). Kotlin/Native's GC is stop-the-world
+with a spinning coordinator, so every allocation eventually costs the reactor thread time.
+
+**Goal:** the rpc path allocates only what the protocol needs per request (decoded Packet, payload, response
+Packet), like `framed`. Contracts of §3 / §4 are unchanged; all tests pass.
+
+Steps (one variable each, measured on 153 with per-request allocations, GC yields and throughput):
+1. Read loop: `Framed.receiveEach` (neton-io's inline pull loop) instead of `incoming().collect`.
+2. `ReactorQueue.send`: non-suspending fast path (hand to a parked receiver or append), suspend only when full.
+3. `enqueue`: the outbound-room check is a plain function; `awaitOutboundRoom` is called only when there is no
+   room.
+4. Handler as `fun interface RequestHandler { suspend fun handle(payload, bizType): ByteArray }`: a lambda
+   passed to `onRequest { … }` still compiles (SAM conversion), and calling it allocates nothing.
+5. Write path: in CHANNEL mode the writer parks in the channel once per request (a kotlinx continuation per
+   park); INLINE mode writes from the enqueuing coroutine. Re-measure CHANNEL vs INLINE after 1–4; INLINE's
+   drain becomes allocation-free (inline body; the cancellation successor stays a separate function).
