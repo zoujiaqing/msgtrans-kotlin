@@ -1,0 +1,25 @@
+gc=auto conns=1000 thr=167242.4 p99a=15466.495 p99b=14680.063 ok=2/2 window_s=6.006200066 gcs=26 pause_us=1964 ttsp_us=81616 pause_max_us=558 ttsp_max_us=6093 heap_kib=23936
+gc=64 conns=1000 thr=172408.5 p99a=15204.351 p99b=14680.063 ok=2/2 window_s=6.030535831 gcs=5 pause_us=217 ttsp_us=23155 pause_max_us=404 ttsp_max_us=6063 heap_kib=64896
+gc=256 conns=1000 thr=172215.7 p99a=14680.063 p99b=14942.207 ok=2/2 window_s=6.032778364 gcs=1 pause_us=356 ttsp_us=12070 pause_max_us=355 ttsp_max_us=12070 heap_kib=243456
+gc=auto conns=10000 thr=148724.0 p99a=121634.815 p99b=130023.423 ok=2/2 window_s=6.043240096 gcs=2 pause_us=361 ttsp_us=4397 pause_max_us=597 ttsp_max_us=6070 heap_kib=195840
+gc=64 conns=10000 thr=156857.4 p99a=127926.271 p99b=117440.511 ok=2/2 window_s=6.030534308 gcs=3 pause_us=654 ttsp_us=8063 pause_max_us=551 ttsp_max_us=7631 heap_kib=198144
+gc=256 conns=10000 thr=147860.9 p99a=134217.727 p99b=119537.663 ok=2/2 window_s=6.054682730 gcs=1 pause_us=345 ttsp_us=5427 pause_max_us=409 ttsp_max_us=6741 heap_kib=258304
+gc=256 conns=1000 thr=170627.5 p99a=14680.063 p99b=15204.351 ok=2/2 window_s=6.023515625 gcs=1 pause_us=403 ttsp_us=6048 pause_max_us=403 ttsp_max_us=6047 heap_kib=243072
+gc=auto conns=1000 thr=167651.6 p99a=14942.207 p99b=15466.495 ok=2/2 window_s=6.023940672 gcs=26 pause_us=1854 ttsp_us=54228 pause_max_us=449 ttsp_max_us=6238 heap_kib=24320
+gc=64 conns=1000 thr=168602.1 p99a=14680.063 p99b=15466.495 ok=2/2 window_s=6.027320412 gcs=5 pause_us=384 ttsp_us=25797 pause_max_us=345 ttsp_max_us=7863 heap_kib=64768
+gc=256 conns=10000 thr=148386.2 p99a=127926.271 p99b=111149.055 ok=2/2 window_s=6.040723980 gcs=1 pause_us=412 ttsp_us=1136 pause_max_us=445 ttsp_max_us=1251 heap_kib=257152
+gc=auto conns=10000 thr=153909.0 p99a=130023.423 p99b=130023.423 ok=2/2 window_s=6.043040041 gcs=2 pause_us=350 ttsp_us=1405 pause_max_us=395 ttsp_max_us=6028 heap_kib=195200
+gc=64 conns=10000 thr=156193.8 p99a=146800.639 p99b=113246.207 ok=2/2 window_s=6.041828504 gcs=3 pause_us=465 ttsp_us=6066 pause_max_us=382 ttsp_max_us=6063 heap_kib=196096
+gc=auto conns=1000 thr=179337.4 p99a=14680.063 p99b=14680.063 ok=2/2 window_s=6.006902777 gcs=28 pause_us=1963 ttsp_us=117326 pause_max_us=528 ttsp_max_us=6355 heap_kib=24192
+gc=64 conns=1000 thr=178782.3 p99a=14680.063 p99b=14680.063 ok=2/2 window_s=6.015857248 gcs=5 pause_us=280 ttsp_us=4828 pause_max_us=367 ttsp_max_us=7630 heap_kib=64896
+gc=256 conns=1000 thr=171327.0 p99a=14680.063 p99b=15204.351 ok=2/2 window_s=6.026362481 gcs=1 pause_us=448 ttsp_us=34 pause_max_us=447 ttsp_max_us=599 heap_kib=242944
+gc=auto conns=10000 thr=161348.2 p99a=113246.207 p99b=117440.511 ok=2/2 window_s=6.035723697 gcs=2 pause_us=118 ttsp_us=4 pause_max_us=535 ttsp_max_us=6272 heap_kib=197888
+gc=64 conns=10000 thr=160872.9 p99a=121634.815 p99b=111149.055 ok=2/2 window_s=6.038607904 gcs=3 pause_us=571 ttsp_us=9259 pause_max_us=425 ttsp_max_us=6057 heap_kib=191488
+gc=256 conns=10000 thr=154609.4 p99a=123731.967 p99b=134217.727 ok=2/2 window_s=6.017810437 gcs=1 pause_us=456 ttsp_us=30 pause_max_us=456 ttsp_max_us=29 heap_kib=257280
+gc=256 conns=1000 thr=179151.5 p99a=14680.063 p99b=14417.919 ok=2/2 window_s=6.031054866 gcs=1 pause_us=386 ttsp_us=25 pause_max_us=386 ttsp_max_us=24 heap_kib=242944
+gc=auto conns=1000 thr=174080.1 p99a=15466.495 p99b=14680.063 ok=2/2 window_s=6.031210008 gcs=27 pause_us=1854 ttsp_us=92989 pause_max_us=491 ttsp_max_us=7055 heap_kib=24576
+gc=64 conns=1000 thr=182261.1 p99a=14417.919 p99b=14417.919 ok=2/2 window_s=6.015888888 gcs=5 pause_us=368 ttsp_us=21739 pause_max_us=401 ttsp_max_us=6039 heap_kib=65280
+gc=256 conns=10000 thr=151820.0 p99a=121634.815 p99b=125829.119 ok=2/2 window_s=6.050967150 gcs=1 pause_us=459 ttsp_us=6364 pause_max_us=458 ttsp_max_us=7066 heap_kib=254976
+gc=auto conns=10000 thr=149260.3 p99a=123731.967 p99b=125829.119 ok=2/2 window_s=6.038299445 gcs=2 pause_us=180 ttsp_us=7718 pause_max_us=536 ttsp_max_us=6703 heap_kib=198144
+gc=64 conns=10000 thr=152243.9 p99a=115343.359 p99b=127926.271 ok=2/2 window_s=6.038456320 gcs=3 pause_us=204 ttsp_us=7435 pause_max_us=408 ttsp_max_us=7432 heap_kib=199040
+# done

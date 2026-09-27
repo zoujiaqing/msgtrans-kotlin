@@ -495,3 +495,22 @@ improves throughput in both N without raising p99.
   This contradicts the +5.5 % measured at 12 connections (neton-io §24.6). Why a 64–256 MiB target collects this often
   (the heap after GC stays at 16 MiB) is not explained yet; until it is, **the recommendation is the default (autotune)**,
   and `GcTuning`'s documentation says so.
+
+### 14.2 Heap floor instead of a fixed target (neton-io SPEC §26.8)
+The fixed target was broken by a runtime detail: with autotuning off, Kotlin/Native 2.4.0 never moves its GC trigger from
+0.9 × the initial 10 MiB, so above 9 MiB alive it collects continuously. `GcTuning.setMinHeap` keeps autotuning and only
+raises its floor (`GC.minHeapBytes`). Same setup as §14.1 (raw `bench/results/2026-09-27-153-results-mt15-gc-minheap.txt`):
+
+| conns | GC | req/s | p99 | GCs/s | STW µs/s | time-to-safepoint µs/s | heap |
+|---|---|---|---|---|---|---|---|
+| 1k | autotune | 172.1k | 15.0 ms | 4.4 | 317 | 14.4k | 24 MiB |
+| 1k | floor 64 MiB | 175.5k (1.02) | 14.8 ms | 0.8 | 52 | 3.1k | 63 MiB |
+| 1k | floor 256 MiB | 173.3k (1.01) | 14.8 ms | 0.2 | 66 | 0.8k | 237 MiB |
+| 10k | autotune | 153.3k | 124 ms | 0.3 | 42 | 0.6k | 192 MiB |
+| 10k | floor 64 MiB | 156.5k (1.02) | 123 ms | 0.5 | 78 | 1.3k | 192 MiB |
+| 10k | floor 256 MiB | 150.7k (0.98) | 125 ms | 0.2 | 69 | 0.5k | 251 MiB |
+
+A 64 MiB floor cuts collections and safepoint waiting about 5× at 1k connections; throughput +2 % in both sizes (3 of 4
+rounds each, at the edge of this host's noise), p99 not worse; it costs heap (24 → 63 MiB at 1k). 256 MiB adds nothing.
+Recommendation: autotune stays the default (GC settings are process-wide, so the library never sets them); servers with
+memory to spare may set `NETON_IO_GC_MIN_HEAP_MB=64` / `GcTuning.setMinHeap(64)`.
