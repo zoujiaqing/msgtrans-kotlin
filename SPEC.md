@@ -463,3 +463,16 @@ Step B (`IdMap`), single-variable check (z13 = z12 with `HashMap<UInt, Pending>`
 rounds): with `HashMap` the client makes 13.24 allocations and 18578 instructions per request against 10.24 and
 17741 (callgrind, deterministic): each of put / get / remove boxes the UInt key. Throughput z12 / z13: INLINE
 1.14, CHANNEL 0.97 (noise). `IdMap` stays. Raw: `bench/results/2026-09-27-153-*`.
+
+## 14. GC under high concurrency (2026-09-27)
+
+neton-io's echo path allocates nothing and runs without GC in steady state (neton-io SPEC §26.4). msgtrans does allocate per
+request (server 3, client ≈ 10 objects, §13.1), so under load its GC runs continuously; with many connections the heap
+(and so each collection's mark work) is larger. This section measures, on the rpc path, what GC costs and whether the
+runtime's own lever — a fixed target heap (`GcTuning`, `NETON_IO_GC_TARGET_MB`) — helps.
+
+Setup (153): `benchServer mode=rpc reactors=2` on cores 0,1 with `NETON_IO_GC_STATS=1`; two `benchClient` processes on
+cores 2 and 3, each with half the connections; 64 B payload. N ∈ {1000, 10000} connections; GC: autotune (default),
+target 64 MiB, target 256 MiB. 4 rounds, order rotated. Reported: summed throughput; server GCs per second, stop-the-world
+time and time-to-safepoint per second (neton-io §26.3). A GC setting becomes a documented recommendation only if it
+improves throughput in both N without raising p99.

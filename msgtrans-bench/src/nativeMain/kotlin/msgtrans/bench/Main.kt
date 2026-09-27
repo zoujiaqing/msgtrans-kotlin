@@ -65,6 +65,7 @@ fun benchServerMain(args: Array<String>) {
     // Bench knob: fix the GC target heap instead of letting the runtime autotune it (fewer GCs, each
     // with its safepoint spin; msgtrans SPEC §12).
     neton.io.net.GcTuning.fromEnvironment()
+    neton.io.net.GcStats.startFromEnvironment()
     runReactor {
         when (mode) {
             "raw" -> RawLayer.serve(this, host, port, reactors)
