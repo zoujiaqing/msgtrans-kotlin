@@ -440,3 +440,24 @@ Steps (allocation counts by callgrind; contracts of §3 / §4 unchanged; all tes
 - **C.** The request waits on its own raw continuation (resumed through neton-io's `ReactorResumer`, cancellation watched
   once per caller job) instead of a `CompletableDeferred`; CHANNEL mode's deadline race against a full mailbox keeps a
   deferred only on that slow path.
+
+### 13.1 Results (153, 2026-09-27; client allocations by callgrind, epoll, 12 connections, 64 B)
+
+| build | client allocations / request (INLINE / CHANNEL) | rpc INLINE req/s | rpc CHANNEL req/s |
+|---|---|---|---|
+| z10 (before §13) | ≈ 30 (§12) | 89.1k | 95.9k |
+| z11 (A + B) | 18.2 / 27.0 | 116.8k (1.31) | 93.6k (0.98) |
+| z12 (C) | 10.2 / 10.3 | 119.3k vs z11 115.9k (1.03) | 120.8k vs z11 101.8k (1.19) |
+
+Throughput: mean of 4 paired rounds per pair (z10/z11 in one run, z11/z12 in the next), server pinned
+to one core. The `framed` layer (not touched by §13) read 0.97 and 0.90 in the same runs; its z12
+shortfall is two rounds (137k, 117k) in which z11 also fell (177k, 144k): host noise on this VM.
+
+What remains per request (z12, INLINE): the request coroutine's frame (2), `CancellableContinuationImpl`
+with its parent handle and dispatcher wrapper (3), the reactor timer (1), `Pending` (1), and the protocol
+objects (request payload copy, decoded response Packet, the bench's own result). Those left are the
+cost of a cancellable, deadline-bounded coroutine call; removing them would mean bypassing the
+coroutine machinery, which §13 does not do.
+
+Step B (`IdMap`) is checked by a single-variable run (z13 = z12 with `HashMap<UInt, Pending>`); it stays
+only if callgrind shows a gain. Raw: `bench/results/2026-09-27-153-*`.
