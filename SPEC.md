@@ -514,3 +514,18 @@ A 64 MiB floor cuts collections and safepoint waiting about 5× at 1k connection
 rounds each, at the edge of this host's noise), p99 not worse; it costs heap (24 → 63 MiB at 1k). 256 MiB adds nothing.
 Recommendation: autotune stays the default (GC settings are process-wide, so the library never sets them); servers with
 memory to spare may set `NETON_IO_GC_MIN_HEAP_MB=64` / `GcTuning.setMinHeap(64)`.
+
+## 15. msgtrans as neton-io's first consumer (2026-09-27; neton-io SPEC §28, pending review)
+
+neton-io is only the I/O and networking foundation; msgtrans is one of the protocol libraries built on it
+(neton-io SPEC §28.1). Obligations, so that msgtrans is evidence that the foundation's public API is enough:
+- **Public API only.** Today msgtrans uses 13 public neton-io symbols and no internal one (neton-io §28.1). Anything
+  msgtrans cannot do with the public API is reported as a neton-io gap (neton-io SPEC), not worked around here.
+- **`ReactorResumer` is optional.** msgtrans uses it in `ReactorQueue` for same-reactor handoffs; the code must stay
+  correct with it removed (plain `intercepted().resume`). Its use follows neton-io §28.3: every resume path takes the
+  continuation out of its slot first (`ReactorQueue`: offer, close and cancellation all do); cancellation handlers
+  hop to the owner reactor before touching a slot; the watch is re-checked after registration (§27.9, done).
+- **Stream contract.** msgtrans only relies on `IoStream` behaviour covered by the neton-io conformance suite
+  (neton-io §28.6); any other behaviour it needs is added to that suite first.
+- **Fairness.** neton-io §28.4's scenarios are also run through msgtrans rpc (hot pipelined connections with many
+  small requests + cold connections), since msgtrans' INLINE writer and handler loop add their own scheduling.
