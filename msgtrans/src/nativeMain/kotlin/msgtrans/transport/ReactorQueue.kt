@@ -1,5 +1,6 @@
 package msgtrans.transport
 
+import kotlinx.cinterop.toKString
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.InternalCoroutinesApi
@@ -37,8 +38,9 @@ import kotlin.coroutines.resumeWithException
 internal class ReactorQueue<T : Any>(private val capacity: Int, private val owner: CoroutineContext) {
     private val items = Ring<T>(minOf(capacity, 16))
     // SPEC §12 step 6: hand-offs resume through the reactor's own ring (no DispatchedTask, no context
-    // lookups); null only if [owner] has no neton-io reactor, then the dispatched resume is used.
-    private val resumer: neton.io.net.ReactorResumer? = neton.io.net.reactorResumer(owner)
+    // lookups); null if [owner] has no neton-io reactor or MSGTRANS_REACTOR_RESUMER=0 (SPEC §15.1), then
+    // the dispatched resume is used. The resumer is an optional fast path: both must behave the same.
+    private val resumer: neton.io.net.ReactorResumer? = if (resumerEnabled) neton.io.net.reactorResumer(owner) else null
     private var takeWaiter: Continuation<T?>? = null
     private var putWaiter: Continuation<Unit>? = null
     private var closed = false
@@ -91,12 +93,22 @@ internal class ReactorQueue<T : Any>(private val capacity: Int, private val owne
 
     private fun resumeTake(c: Continuation<T?>, item: T?) {
         val r = resumer
-        if (r != null) r.resume(c, item) else c.intercepted().resume(item)
+        if (r == null) c.intercepted().resume(item) else if (!r.resume(c, item)) onRefused()
     }
 
     private fun resumePut(c: Continuation<Unit>) {
         val r = resumer
-        if (r != null) r.resume(c, Unit) else c.intercepted().resume(Unit)
+        if (r == null) c.intercepted().resume(Unit) else if (!r.resume(c, Unit)) onRefused()
+    }
+
+    /**
+     * The reactor refused a resume (SPEC §15.1, neton-io §28.3): it only does so once it is closing,
+     * when no coroutine of its scope is parked any more, so this is a lifecycle bug. The item (a
+     * packet, nothing native) is dropped, the queue closes, and the fault is reported, not hidden.
+     */
+    private fun onRefused() {
+        closed = true
+        reportRefusedResume()
     }
 
     private suspend fun parkTake(): T? = suspendCoroutineUninterceptedOrReturn { cont ->
@@ -136,4 +148,14 @@ internal class ReactorQueue<T : Any>(private val capacity: Int, private val owne
         val p = putWaiter
         if (p != null && p.context[Job] === job) { putWaiter = null; p.intercepted().resumeWithException(job.getCancellationException()) }
     }
+}
+
+/** SPEC §15.1: `MSGTRANS_REACTOR_RESUMER=0` turns the resumer fast path off (read once). */
+@OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+internal val resumerEnabled: Boolean = platform.posix.getenv("MSGTRANS_REACTOR_RESUMER")?.toKString() != "0"
+
+@OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+private fun reportRefusedResume() {
+    platform.posix.fprintf(platform.posix.stderr, "msgtrans: a reactor refused a queue hand-off (it had stopped); the queue is closed\n")
+    platform.posix.fflush(platform.posix.stderr)
 }

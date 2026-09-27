@@ -543,3 +543,7 @@ reports the fault (not silently). Tests: a queue hand-off during a draining stop
 ### 15.2 Coordinates (neton-io SPEC §28.13)
 msgtrans keeps `com.netonstream:msgtrans` and its `msgtrans.*` packages; from 0.2.0 it depends on `com.netonstream:io`
 (the renamed neton-io artifact; the Kotlin packages `neton.io.*` are unchanged).
+
+**§15.1 done (2026-09-27)**: `ReactorQueue` closes itself and reports when a resume is refused; `MSGTRANS_REACTOR_RESUMER=0`
+switches the fast path off. `ReactorQueueRefusedTest` provokes the refusal (a receiver parked outside the reactor's scope, then
+the reactor stops). The full suite passes in both modes: macOS, and Linux io_uring / epoll, 44/44 each.
