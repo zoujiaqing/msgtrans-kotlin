@@ -459,5 +459,7 @@ objects (request payload copy, decoded response Packet, the bench's own result).
 cost of a cancellable, deadline-bounded coroutine call; removing them would mean bypassing the
 coroutine machinery, which §13 does not do.
 
-Step B (`IdMap`) is checked by a single-variable run (z13 = z12 with `HashMap<UInt, Pending>`); it stays
-only if callgrind shows a gain. Raw: `bench/results/2026-09-27-153-*`.
+Step B (`IdMap`), single-variable check (z13 = z12 with `HashMap<UInt, Pending>`, same z12 server, 6 paired
+rounds): with `HashMap` the client makes 13.24 allocations and 18578 instructions per request against 10.24 and
+17741 (callgrind, deterministic): each of put / get / remove boxes the UInt key. Throughput z12 / z13: INLINE
+1.14, CHANNEL 0.97 (noise). `IdMap` stays. Raw: `bench/results/2026-09-27-153-*`.

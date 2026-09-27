@@ -1,0 +1,27 @@
+z12 rpc inline thr=89163.6
+z12 rpc channel thr=83728.6
+z13 rpc inline thr=88443.7
+z13 rpc channel thr=83681.1
+z12 rpc inline thr=117186.1
+z12 rpc channel thr=88935.6
+z13 rpc inline thr=87385.4
+z13 rpc channel thr=91669.5
+z12 rpc inline thr=118531.4
+z12 rpc channel thr=109843.1
+z13 rpc inline thr=88243.1
+z13 rpc channel thr=107042.5
+z12 rpc inline thr=117925.1
+z12 rpc channel thr=108949.7
+z13 rpc inline thr=113927.1
+z13 rpc channel thr=106321.8
+z12 rpc inline thr=117302.1
+z12 rpc channel thr=84218.6
+z13 rpc inline thr=87654.2
+z13 rpc channel thr=80212.6
+z12 rpc inline thr=89950.5
+z12 rpc channel thr=84442.1
+z13 rpc inline thr=104850.3
+z13 rpc channel thr=106859.7
+callgrind z12 requests=51538 ir_per_req=17741 allocs_per_req=10.24
+callgrind z13 requests=48945 ir_per_req=18578 allocs_per_req=13.24
+# done
