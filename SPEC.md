@@ -534,6 +534,12 @@ neton-io is only the I/O and networking foundation; msgtrans is one of the proto
 Code inspection is not enough: msgtrans gets a switch (`MSGTRANS_REACTOR_RESUMER=0`, read once at startup) that makes
 `ReactorQueue` use plain `intercepted().resume` instead of `ReactorResumer`. The full test suite — correctness,
 cancellation and close tests included — must pass in both modes on every platform it runs on (macOS; Linux io_uring /
-epoll). When neton-io §28.3 makes `ReactorResumer.resume` return `Boolean`, a rejected resume (`false`: the reactor is
-stopping or stopped) makes `ReactorQueue` drop the item (releasing what it carries), mark itself closed, and stop
-resuming that continuation; a test covers it.
+epoll). When neton-io §28.3 makes `ReactorResumer.resume` return `Boolean`: a reactor that is draining still accepts
+every resume, so queue hand-offs keep working while connections finish or are cancelled during a stop. `false` only
+happens once the reactor is `CLOSING` / `STOPPED`, when (neton-io §28.3 invariant) no child coroutine of it is still
+parked, so it means a lifecycle bug: `ReactorQueue` then releases what the item carries, marks itself closed, and
+reports the fault (not silently). Tests: a queue hand-off during a draining stop completes; the misuse path reports.
+
+### 15.2 Coordinates (neton-io SPEC §28.13)
+msgtrans keeps `com.netonstream:msgtrans` and its `msgtrans.*` packages; from 0.2.0 it depends on `com.netonstream:io`
+(the renamed neton-io artifact; the Kotlin packages `neton.io.*` are unchanged).
