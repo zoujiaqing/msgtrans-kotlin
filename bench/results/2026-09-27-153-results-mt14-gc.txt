@@ -1,0 +1,25 @@
+gc=auto conns=1000 thr=167668.3 p99a=15204.351 p99b=15204.351 ok=2/2 window_s=6.026692966 gcs=25 pause_us=1969 ttsp_us=75983 pause_max_us=509 ttsp_max_us=7272 heap_kib=24832
+gc=64 conns=1000 thr=149514.2 p99a=19398.655 p99b=19398.655 ok=2/2 window_s=6.028915039 gcs=586 pause_us=21528 ttsp_us=325935 pause_max_us=3549 ttsp_max_us=6088 heap_kib=16512
+gc=256 conns=1000 thr=138839.4 p99a=20447.231 p99b=20447.231 ok=2/2 window_s=6.029411072 gcs=422 pause_us=20691 ttsp_us=227229 pause_max_us=2407 ttsp_max_us=5057 heap_kib=16512
+gc=auto conns=10000 thr=145756.3 p99a=109051.903 p99b=127926.271 ok=2/2 window_s=6.038431176 gcs=2 pause_us=111 ttsp_us=12122 pause_max_us=468 ttsp_max_us=6102 heap_kib=197888
+gc=64 conns=10000 thr=127350.1 p99a=155189.247 p99b=150994.943 ok=2/2 window_s=6.042397617 gcs=52 pause_us=6093 ttsp_us=18317 pause_max_us=2199 ttsp_max_us=5255 heap_kib=112512
+gc=256 conns=10000 thr=132348.4 p99a=155189.247 p99b=159383.551 ok=2/2 window_s=6.047960466 gcs=49 pause_us=7819 ttsp_us=12015 pause_max_us=636 ttsp_max_us=5676 heap_kib=113408
+gc=256 conns=1000 thr=159376.6 p99a=18874.367 p99b=18874.367 ok=2/2 window_s=6.031173011 gcs=544 pause_us=17949 ttsp_us=223929 pause_max_us=2249 ttsp_max_us=6043 heap_kib=16768
+gc=auto conns=1000 thr=174227.8 p99a=15466.495 p99b=14942.207 ok=2/2 window_s=6.020099650 gcs=26 pause_us=4022 ttsp_us=77270 pause_max_us=2210 ttsp_max_us=7240 heap_kib=24320
+gc=64 conns=1000 thr=150685.9 p99a=19922.943 p99b=19922.943 ok=2/2 window_s=6.015332326 gcs=569 pause_us=18619 ttsp_us=225769 pause_max_us=2189 ttsp_max_us=6261 heap_kib=16384
+gc=256 conns=10000 thr=131921.0 p99a=150994.943 p99b=150994.943 ok=2/2 window_s=6.041911113 gcs=53 pause_us=12429 ttsp_us=22606 pause_max_us=6355 ttsp_max_us=4002 heap_kib=116352
+gc=auto conns=10000 thr=146599.7 p99a=123731.967 p99b=132120.575 ok=2/2 window_s=6.043017932 gcs=3 pause_us=578 ttsp_us=10499 pause_max_us=387 ttsp_max_us=6169 heap_kib=198016
+gc=64 conns=10000 thr=131375.8 p99a=142606.335 p99b=146800.639 ok=2/2 window_s=6.043237203 gcs=51 pause_us=5669 ttsp_us=22664 pause_max_us=448 ttsp_max_us=3617 heap_kib=113280
+gc=auto conns=1000 thr=167085.8 p99a=15466.495 p99b=14942.207 ok=2/2 window_s=6.029091561 gcs=25 pause_us=1988 ttsp_us=56116 pause_max_us=439 ttsp_max_us=8056 heap_kib=24192
+gc=64 conns=1000 thr=154646.5 p99a=19398.655 p99b=18874.367 ok=2/2 window_s=6.025795179 gcs=580 pause_us=28161 ttsp_us=234911 pause_max_us=2543 ttsp_max_us=5566 heap_kib=15616
+gc=256 conns=1000 thr=154068.4 p99a=19922.943 p99b=18874.367 ok=2/2 window_s=6.019697565 gcs=580 pause_us=24596 ttsp_us=273155 pause_max_us=4366 ttsp_max_us=5418 heap_kib=16256
+gc=auto conns=10000 thr=145782.2 p99a=142606.335 p99b=125829.119 ok=2/2 window_s=6.056193913 gcs=2 pause_us=134 ttsp_us=3997 pause_max_us=477 ttsp_max_us=6028 heap_kib=192768
+gc=64 conns=10000 thr=127673.2 p99a=150994.943 p99b=146800.639 ok=2/2 window_s=6.053955887 gcs=53 pause_us=5646 ttsp_us=23214 pause_max_us=421 ttsp_max_us=3943 heap_kib=114048
+gc=256 conns=10000 thr=129886.6 p99a=150994.943 p99b=155189.247 ok=2/2 window_s=6.037191166 gcs=49 pause_us=7579 ttsp_us=16604 pause_max_us=2563 ttsp_max_us=4013 heap_kib=114560
+gc=256 conns=1000 thr=143694.1 p99a=19922.943 p99b=20447.231 ok=2/2 window_s=6.026568392 gcs=410 pause_us=16938 ttsp_us=215849 pause_max_us=2364 ttsp_max_us=4535 heap_kib=15744
+gc=auto conns=1000 thr=176048.8 p99a=14417.919 p99b=14680.063 ok=2/2 window_s=6.010278271 gcs=27 pause_us=2129 ttsp_us=94728 pause_max_us=416 ttsp_max_us=10090 heap_kib=24320
+gc=64 conns=1000 thr=136626.5 p99a=21495.807 p99b=20971.519 ok=2/2 window_s=6.024146813 gcs=422 pause_us=24861 ttsp_us=264781 pause_max_us=2500 ttsp_max_us=7145 heap_kib=16768
+gc=256 conns=10000 thr=129197.8 p99a=150994.943 p99b=159383.551 ok=2/2 window_s=6.050623839 gcs=46 pause_us=5696 ttsp_us=13808 pause_max_us=626 ttsp_max_us=3342 heap_kib=114432
+gc=auto conns=10000 thr=148312.9 p99a=123731.967 p99b=127926.271 ok=2/2 window_s=6.047399561 gcs=3 pause_us=327 ttsp_us=18733 pause_max_us=418 ttsp_max_us=6431 heap_kib=199296
+gc=64 conns=10000 thr=129533.0 p99a=150994.943 p99b=159383.551 ok=2/2 window_s=6.043391674 gcs=50 pause_us=14783 ttsp_us=17837 pause_max_us=8788 ttsp_max_us=6028 heap_kib=114944
+# done

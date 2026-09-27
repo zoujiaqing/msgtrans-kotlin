@@ -476,3 +476,22 @@ cores 2 and 3, each with half the connections; 64 B payload. N ∈ {1000, 10000}
 target 64 MiB, target 256 MiB. 4 rounds, order rotated. Reported: summed throughput; server GCs per second, stop-the-world
 time and time-to-safepoint per second (neton-io §26.3). A GC setting becomes a documented recommendation only if it
 improves throughput in both N without raising p99.
+
+### 14.1 Results (153, 4 rounds each, order rotated; raw `bench/results/2026-09-27-153-results-mt14-gc.txt`)
+
+| conns | GC | req/s | p99 | GCs/s | STW µs/s | time-to-safepoint µs/s | heap after GC |
+|---|---|---|---|---|---|---|---|
+| 1k | autotune | 171.3k | 15.0 ms | 4.3 | 420 | 12.6k | 24 MiB |
+| 1k | target 64 MiB | 147.9k (0.86) | 19.9 ms | 89.5 | 3867 | 43.6k | 16 MiB |
+| 1k | target 256 MiB | 149.0k (0.87) | 19.7 ms | 81.1 | 3326 | 39.0k | 16 MiB |
+| 10k | autotune | 146.6k | 127 ms | 0.4 | 48 | 1.9k | 192 MiB |
+| 10k | target 64 MiB | 129.0k (0.88) | 150 ms | 8.5 | 1331 | 3.4k | 111 MiB |
+| 10k | target 256 MiB | 130.8k (0.89) | 154 ms | 8.1 | 1387 | 2.7k | 112 MiB |
+
+- With the runtime's autotuning, GC is not what limits msgtrans at high concurrency: stop-the-world time is 0.04 % of the
+  wall clock at 1k connections and ~0 at 10k. Time to safepoint is larger (the coordinator waits for both reactors on two
+  shared cores, neton-io §26.4), and it is where the remaining GC cost lies.
+- A fixed target heap is **harmful** here: 20× more collections, −11 to −14 % throughput, worse p99, in all 8 pairs.
+  This contradicts the +5.5 % measured at 12 connections (neton-io §24.6). Why a 64–256 MiB target collects this often
+  (the heap after GC stays at 16 MiB) is not explained yet; until it is, **the recommendation is the default (autotune)**,
+  and `GcTuning`'s documentation says so.
