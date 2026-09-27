@@ -182,7 +182,7 @@ class Connection internal constructor(
     private val outbound = Channel<Packet>(config.mailboxCapacity)
 
     // INLINE write mode state (reactor-thread only).
-    private val sendQueue = ArrayDeque<Packet>()
+    private val sendQueue = Ring<Packet>()
     private var writerActive = false
     private val roomWaiters = ArrayDeque<CancellableContinuation<Unit>>()
 

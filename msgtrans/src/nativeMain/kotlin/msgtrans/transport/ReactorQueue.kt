@@ -35,7 +35,10 @@ import kotlin.coroutines.resumeWithException
  */
 @OptIn(InternalCoroutinesApi::class)
 internal class ReactorQueue<T : Any>(private val capacity: Int, private val owner: CoroutineContext) {
-    private val items = ArrayDeque<T>(minOf(capacity, 16))
+    private val items = Ring<T>(minOf(capacity, 16))
+    // SPEC §12 step 6: hand-offs resume through the reactor's own ring (no DispatchedTask, no context
+    // lookups); null only if [owner] has no neton-io reactor, then the dispatched resume is used.
+    private val resumer: neton.io.net.ReactorResumer? = neton.io.net.reactorResumer(owner)
     private var takeWaiter: Continuation<T?>? = null
     private var putWaiter: Continuation<Unit>? = null
     private var closed = false
@@ -54,7 +57,7 @@ internal class ReactorQueue<T : Any>(private val capacity: Int, private val owne
     private fun offer(item: T): Boolean {
         if (closed) throw ClosedException()
         val c = takeWaiter
-        if (c != null) { takeWaiter = null; c.intercepted().resume(item); return true }
+        if (c != null) { takeWaiter = null; resumeTake(c, item); return true }
         if (items.size < capacity) { items.addLast(item); return true }
         return false
     }
@@ -67,9 +70,9 @@ internal class ReactorQueue<T : Any>(private val capacity: Int, private val owne
     }
 
     suspend fun receive(): T? {
-        if (items.isNotEmpty()) {
-            val x = items.removeFirst()
-            putWaiter?.let { putWaiter = null; it.intercepted().resume(Unit) }
+        val x = items.removeFirstOrNull()
+        if (x != null) {
+            putWaiter?.let { putWaiter = null; resumePut(it) }
             return x
         }
         if (closed) return null
@@ -80,10 +83,20 @@ internal class ReactorQueue<T : Any>(private val capacity: Int, private val owne
     fun close() {
         if (closed) return
         closed = true
-        if (items.isEmpty()) takeWaiter?.let { takeWaiter = null; it.intercepted().resume(null) }
+        if (items.isEmpty()) takeWaiter?.let { takeWaiter = null; resumeTake(it, null) }
         putWaiter?.let { putWaiter = null; it.intercepted().resumeWithException(ClosedException()) }
         handleA?.dispose(); handleB?.dispose()
         handleA = null; handleB = null; watchedA = null; watchedB = null
+    }
+
+    private fun resumeTake(c: Continuation<T?>, item: T?) {
+        val r = resumer
+        if (r != null) r.resume(c, item) else c.intercepted().resume(item)
+    }
+
+    private fun resumePut(c: Continuation<Unit>) {
+        val r = resumer
+        if (r != null) r.resume(c, Unit) else c.intercepted().resume(Unit)
     }
 
     private suspend fun parkTake(): T? = suspendCoroutineUninterceptedOrReturn { cont ->
