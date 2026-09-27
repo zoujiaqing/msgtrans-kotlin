@@ -115,9 +115,12 @@ internal class ReactorQueue<T : Any>(private val capacity: Int, private val owne
         val job = cont.context[Job] ?: return
         if (!job.isActive) throw job.getCancellationException()
         if (job === watchedA || job === watchedB) return
-        val handle = job.invokeOnCompletion(onCancelling = true, invokeImmediately = false) {
-            val d = owner[ContinuationInterceptor] as CoroutineDispatcher
-            d.dispatch(owner, Runnable { onCancelled(job) })
+        val handle = job.invokeOnCompletion(onCancelling = true, invokeImmediately = false) { cause ->
+            // Also called on normal completion (cause == null): nothing to wake, and no exception to build.
+            if (cause != null) {
+                val d = owner[ContinuationInterceptor] as CoroutineDispatcher
+                d.dispatch(owner, Runnable { onCancelled(job) })
+            }
         }
         // Two slots: the producer's and the consumer's loop. A third job evicts the older watch.
         if (watchedA == null) { watchedA = job; handleA = handle }
