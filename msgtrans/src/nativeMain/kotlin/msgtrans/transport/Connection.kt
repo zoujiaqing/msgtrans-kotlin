@@ -7,6 +7,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Runnable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
@@ -198,7 +199,7 @@ class Connection internal constructor(
     private val inboundRequests = ReactorQueue<Packet>(config.inboundCapacity, owner)
     private val inboundEvents = Channel<Message>(config.inboundCapacity)
 
-    private val pending = IdMap<CompletableDeferred<Packet>>()
+    private val pending = IdMap<Pending>()
     private var requestId: UInt = 0u   // per-session, refuses to wrap
     private var oneWayId: UInt = 0u    // separate, free to wrap
     private var requestHandler: RequestHandler? = null
@@ -281,7 +282,7 @@ class Connection internal constructor(
      */
     private suspend fun awaitOutboundRoom(bytes: Long, req: Pending?): Boolean {
         while (!closed) {
-            if (req != null && req.result.isCompleted) return false
+            if (req != null && req.isCompleted) return false
             val slotFree = writeMode == WriteMode.CHANNEL || sendQueue.size < mailboxCapacity
             // An empty queue always accepts one packet, so a large but legal payload cannot
             // deadlock against its own budget.
@@ -294,7 +295,7 @@ class Connection internal constructor(
             }
             req?.roomCont = null
         }
-        if (req != null && req.result.isCompleted) return false
+        if (req != null && req.isCompleted) return false
         throw ConnectionClosedException()
     }
 
@@ -329,24 +330,40 @@ class Connection internal constructor(
      * contradicted the "one deadline for the whole call" contract. Both waits now end as soon as
      * [req] is completed.
      */
-    private suspend fun enqueueForRequest(packet: Packet, req: Pending) {
+    private suspend inline fun enqueueForRequest(packet: Packet, req: Pending) {
         checkOutboundSize(packet)
-        if (!awaitOutboundRoom(packetBytes(packet), req)) return // deadline fired; nothing queued
-        queuedBytes += packetBytes(packet)
-        if (writeMode == WriteMode.CHANNEL) {
-            // A coroutine parked in Channel.send cannot be woken selectively, so race the send
-            // against the request's own result; if the deadline wins, onAwait rethrows its
-            // RequestTimeoutException and nothing is queued.
-            var sent = false
+        val bytes = packetBytes(packet)
+        // Deadline fired while waiting for room: nothing is queued.
+        if (hasOutboundRoom(bytes) || awaitOutboundRoom(bytes, req)) {
+            queuedBytes += bytes
+            if (writeMode == WriteMode.CHANNEL) {
+                if (!outbound.trySend(packet).isSuccess) sendRacingDeadline(packet, bytes, req)
+            } else {
+                sendQueue.addLast(packet)
+                if (!writerActive) drainAsWriter()
+            }
+        }
+    }
+
+    /**
+     * CHANNEL mode with a full (or closed) outbound channel. A coroutine parked in Channel.send
+     * cannot be woken selectively, so race the send against the request's settlement; if the
+     * deadline wins, nothing is queued and the caller's await rethrows the timeout.
+     */
+    private suspend fun sendRacingDeadline(packet: Packet, bytes: Long, req: Pending) {
+        if (req.isCompleted) { releaseOutboundBytes(bytes); return }
+        val gate = CompletableDeferred<Unit>()
+        req.gate = gate
+        var sent = false
+        try {
             select {
                 outbound.onSend(packet) { sent = true }
-                req.result.onAwait { }
+                gate.onAwait { }
             }
-            if (!sent) releaseOutboundBytes(packetBytes(packet))
-            return
+        } finally {
+            req.gate = null
+            if (!sent) releaseOutboundBytes(bytes)
         }
-        sendQueue.addLast(packet)
-        if (!writerActive) drainAsWriter()
     }
 
     /** Give [bytes] back to the outbound budget and let a waiter through. */
@@ -493,11 +510,57 @@ class Connection internal constructor(
         fflush(stderr)
     }
 
-    /** One outstanding request: its result and (while parked for a slot) its waiter. */
-    private class Pending(val id: UInt, val result: CompletableDeferred<Packet>) {
+    /**
+     * One outstanding request: its result, its waiters, and its deadline (it is the timer's
+     * Runnable). SPEC §13 step C: settling it resumes the parked caller directly, which replaced
+     * a CompletableDeferred and its await machinery, and the deadline lambda.
+     * Owner-reactor state only.
+     */
+    private inner class Pending(val id: UInt, val timeoutMillis: Long) : Runnable {
+        private var response: Packet? = null
+        private var error: Throwable? = null
+        /** The caller, while parked for the response. */
+        var waiter: CancellableContinuation<Packet>? = null
+        /** Only while racing a full outbound channel (CHANNEL mode). */
+        var gate: CompletableDeferred<Unit>? = null
         var slotCont: CancellableContinuation<Unit>? = null
         /** Set while this request is parked waiting for outbound mailbox room (INLINE mode). */
         var roomCont: CancellableContinuation<Unit>? = null
+
+        val isCompleted: Boolean get() = response != null || error != null
+
+        fun complete(packet: Packet): Boolean {
+            if (isCompleted) return false
+            response = packet
+            gate?.complete(Unit)
+            waiter?.let { waiter = null; it.resume(packet) }
+            return true
+        }
+
+        fun fail(e: Throwable): Boolean {
+            if (isCompleted) return false
+            error = e
+            gate?.complete(Unit)
+            waiter?.let { waiter = null; it.resumeWithException(e) }
+            return true
+        }
+
+        /** Suspend until settled; returns the response or throws the failure. */
+        suspend fun await(): Packet {
+            response?.let { return it }
+            error?.let { throw it }
+            return suspendCancellableCoroutine { cont -> waiter = cont }
+        }
+
+        /** The deadline: fails the result and wakes a parked slot- or room-waiter. */
+        override fun run() {
+            if (fail(RequestTimeoutException(id, timeoutMillis))) {
+                pending.remove(id)
+                slotCont?.let { it.resume(Unit); slotCont = null }
+                roomCont?.let { roomWaiters.remove(it); it.resume(Unit); roomCont = null }
+                wakeOneInFlightWaiter()
+            }
+        }
     }
 
     /**
@@ -529,39 +592,33 @@ class Connection internal constructor(
             check(!closed) { "connection closed" }
             val encoded = prepareOutboundPayload(payload, compression)
             val id = nextRequestId()
-            val req = Pending(id, CompletableDeferred())
-            // One deadline for the whole call: fails the result and wakes a parked slot-waiter.
+            val req = Pending(id, timeoutMillis)
+            // One deadline for the whole call (Pending.run).
             val deadline: DisposableHandle? = if (timeoutMillis > 0) {
                 @OptIn(InternalCoroutinesApi::class)
-                (owner[ContinuationInterceptor] as Delay).invokeOnTimeout(timeoutMillis, {
-                    if (req.result.completeExceptionally(RequestTimeoutException(id, timeoutMillis))) {
-                        pending.remove(id)
-                        req.slotCont?.let { it.resume(Unit); req.slotCont = null }
-                        req.roomCont?.let { roomWaiters.remove(it); it.resume(Unit); req.roomCont = null }
-                        wakeOneInFlightWaiter()
-                    }
-                }, owner)
+                (ownerInterceptor as Delay).invokeOnTimeout(timeoutMillis, req, owner)
             } else null
             try {
                 // Bounded, deadline-abortable wait for an in-flight slot.
-                while (!closed && pending.size >= config.maxInFlightRequests && !req.result.isCompleted) {
+                while (!closed && pending.size >= config.maxInFlightRequests && !req.isCompleted) {
                     suspendCancellableCoroutine<Unit> { cont ->
                         req.slotCont = cont
                         inFlightWaiters.addLast(req)
                         cont.invokeOnCancellation { inFlightWaiters.remove(req); req.slotCont = null }
                     }
                 }
-                if (req.result.isCompleted) return req.result.await().payload // timed out waiting
+                if (req.isCompleted) return req.await().payload // timed out waiting
                 if (closed) throw ConnectionClosedException()
-                pending[id] = req.result
+                pending[id] = req
                 enqueueForRequest(Packet(
                     PacketType.Request, id, bizType, encoded, compression = compression,
                 ), req)
                 // If the deadline fired while we were parked for mailbox room, the result is
                 // already completed with RequestTimeoutException and await() rethrows it here.
-                return req.result.await().payload
+                return req.await().payload
             } finally {
                 deadline?.dispose()
+                req.waiter = null
                 inFlightWaiters.remove(req)
                 if (pending.remove(id) != null) wakeOneInFlightWaiter() // cancel/error path
             }
@@ -621,7 +678,7 @@ class Connection internal constructor(
         inboundRequests.close()
         inboundEvents.close()
         io.close()
-        pending.forEachValue { it.completeExceptionally(ConnectionClosedException()) }
+        pending.forEachValue { it.fail(ConnectionClosedException()) }
         pending.clear()
         sendQueue.clear()
         queuedBytes = 0L
@@ -629,7 +686,7 @@ class Connection internal constructor(
         // Fail slot-waiters: complete their result and wake them; they observe the completed result.
         while (inFlightWaiters.isNotEmpty()) {
             val req = inFlightWaiters.removeFirst()
-            req.result.completeExceptionally(ConnectionClosedException())
+            req.fail(ConnectionClosedException())
             req.slotCont?.let { it.resume(Unit); req.slotCont = null }
         }
         // A closed fd is not reliably reported by the reactor, so the loops must be cancelled.
