@@ -122,6 +122,8 @@ internal class ReactorQueue<T : Any>(private val capacity: Int, private val owne
                 d.dispatch(owner, Runnable { onCancelled(job) })
             }
         }
+        // A cancel between the isActive check and the registration calls no handler (neton-io SPEC §27.9).
+        if (!job.isActive) { handle.dispose(); throw job.getCancellationException() }
         // Two slots: the producer's and the consumer's loop. A third job evicts the older watch.
         if (watchedA == null) { watchedA = job; handleA = handle }
         else if (watchedB == null) { watchedB = job; handleB = handle }
