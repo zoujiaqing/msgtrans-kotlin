@@ -1,0 +1,50 @@
+# host=service load=1.26
+msgtrans linuxX64 tests=41 failures=0
+rpc-channel thr=86312.2 req=855010 yields_per_req=0.881 syscalls_per_req=1.306 cpu_ns_per_req=9195
+rpc-inline thr=103044.5 req=1032368 yields_per_req=0.749 syscalls_per_req=1.215 cpu_ns_per_req=6806
+rpc-channel-gc64 thr=103792.5 req=1017873 yields_per_req=0.411 syscalls_per_req=0.853 cpu_ns_per_req=7452
+rpc-channel-gc256 thr=103845.7 req=1041723 yields_per_req=0.415 syscalls_per_req=0.861 cpu_ns_per_req=7298
+framed thr=173675.2 req=1744316 yields_per_req=0.739 syscalls_per_req=1.069 cpu_ns_per_req=5608
+framed-gc256 thr=176422.0 req=1777818 yields_per_req=0.346 syscalls_per_req=0.691 cpu_ns_per_req=5479
+rpc-channel thr=84100.9 req=879181 yields_per_req=0.876 syscalls_per_req=1.298 cpu_ns_per_req=9029
+rpc-inline thr=88202.7 req=896179 yields_per_req=0.747 syscalls_per_req=1.208 cpu_ns_per_req=8058
+rpc-channel-gc64 thr=95050.5 req=923419 yields_per_req=0.401 syscalls_per_req=0.834 cpu_ns_per_req=8408
+rpc-channel-gc256 thr=94173.3 req=959876 yields_per_req=0.400 syscalls_per_req=0.837 cpu_ns_per_req=8022
+framed thr=119026.1 req=1227622 yields_per_req=0.746 syscalls_per_req=1.048 cpu_ns_per_req=7913
+framed-gc256 thr=179790.8 req=1803517 yields_per_req=0.355 syscalls_per_req=0.700 cpu_ns_per_req=5421
+rpc-channel thr=102316.8 req=1029360 yields_per_req=0.883 syscalls_per_req=1.328 cpu_ns_per_req=7449
+rpc-inline thr=92338.6 req=903842 yields_per_req=0.740 syscalls_per_req=1.193 cpu_ns_per_req=8105
+rpc-channel-gc64 thr=104320.0 req=1043098 yields_per_req=0.410 syscalls_per_req=0.851 cpu_ns_per_req=7312
+rpc-channel-gc256 thr=102602.3 req=1006675 yields_per_req=0.413 syscalls_per_req=0.856 cpu_ns_per_req=7637
+framed thr=174174.2 req=1739143 yields_per_req=0.753 syscalls_per_req=1.103 cpu_ns_per_req=5603
+framed-gc256 thr=179149.1 req=1792706 yields_per_req=0.357 syscalls_per_req=0.734 cpu_ns_per_req=5418
+rpc-channel thr=101773.2 req=1027142 yields_per_req=0.875 syscalls_per_req=1.324 cpu_ns_per_req=7433
+rpc-inline thr=97485.0 req=985151 yields_per_req=0.735 syscalls_per_req=1.195 cpu_ns_per_req=7259
+rpc-channel-gc64 thr=99478.4 req=960650 yields_per_req=0.403 syscalls_per_req=0.844 cpu_ns_per_req=8057
+rpc-channel-gc256 thr=104119.0 req=1046734 yields_per_req=0.413 syscalls_per_req=0.857 cpu_ns_per_req=7281
+framed thr=172959.9 req=1740819 yields_per_req=0.747 syscalls_per_req=1.112 cpu_ns_per_req=5569
+framed-gc256 thr=177939.6 req=1784884 yields_per_req=0.350 syscalls_per_req=0.704 cpu_ns_per_req=5475
+rpc-channel thr=94345.9 req=955497 yields_per_req=0.882 syscalls_per_req=1.320 cpu_ns_per_req=8029
+rpc-inline thr=100664.7 req=1008694 yields_per_req=0.756 syscalls_per_req=1.220 cpu_ns_per_req=6937
+rpc-channel-gc64 thr=102915.8 req=1038370 yields_per_req=0.415 syscalls_per_req=0.855 cpu_ns_per_req=7379
+rpc-channel-gc256 thr=102960.4 req=1023566 yields_per_req=0.403 syscalls_per_req=0.849 cpu_ns_per_req=7351
+framed thr=162029.3 req=1653202 yields_per_req=0.737 syscalls_per_req=1.046 cpu_ns_per_req=5864
+framed-gc256 thr=178019.8 req=1787757 yields_per_req=0.345 syscalls_per_req=0.705 cpu_ns_per_req=5437
+rpc-channel thr=103633.9 req=1034525 yields_per_req=0.887 syscalls_per_req=1.335 cpu_ns_per_req=7474
+rpc-inline thr=101848.3 req=1022621 yields_per_req=0.738 syscalls_per_req=1.206 cpu_ns_per_req=6807
+rpc-channel-gc64 thr=91093.0 req=938654 yields_per_req=0.413 syscalls_per_req=0.848 cpu_ns_per_req=8322
+rpc-channel-gc256 thr=83498.5 req=833884 yields_per_req=0.407 syscalls_per_req=0.824 cpu_ns_per_req=9620
+framed thr=168949.8 req=1602673 yields_per_req=0.746 syscalls_per_req=1.074 cpu_ns_per_req=6087
+framed-gc256 thr=179517.2 req=1805323 yields_per_req=0.354 syscalls_per_req=0.682 cpu_ns_per_req=5412
+== rpc-inline callgrind requests=153203
+153203 ???:kfun:msgtrans.transport.Connection.$handlerLoopCOROUTINE$16.invokeSuspend#internal
+153203 ???:kfun:msgtrans.core.PacketCodec#decode(neton.io.bytes.Buffer){}msgtrans.core.Packet?
+153203 ???:kfun:kotlin.collections#copyOfUninitializedElements__at__kotlin.ByteArray(kotlin.Int;kotlin.Int){}kotlin.ByteArray
+372 ???:kfun:kotlin#lazy(kotlin.Function0<0:0>){0§<kotlin.Any?>}kotlin.Lazy<0:0>
+183 ???:kfun:kotlinx.atomicfu.locks.SynchronizedObject#lock(){}
+130 ???:kfun:msgtrans.transport.Connection#<init>(neton.io.core.IoStream;kotlinx.coroutines.CoroutineScope;msgtrans.transport.ConnectionConfig){}
+122 ???:kfun:kotlinx.atomicfu.locks.SynchronizedObject#unlock(){}
+90 ???:kfun:kotlin.collections.HashMap#<init>(kotlin.Int){}
+72 ???:kfun:kotlinx.atomicfu.locks.SynchronizedObject#<init>(){}
+65 ???:kfun:kotlinx.coroutines.internal.LockFreeLinkedListNode#close(kotlin.Int){}
+# done

@@ -409,3 +409,11 @@ Steps (one variable each, measured on 153 with per-request allocations, GC yield
 5. Write path: in CHANNEL mode the writer parks in the channel once per request (a kotlinx continuation per
    park); INLINE mode writes from the enqueuing coroutine. Re-measure CHANNEL vs INLINE after 1–4; INLINE's
    drain becomes allocation-free (inline body; the cancellation successor stays a separate function).
+
+**Results (153; raw `bench/results/2026-09-27-153-mt{3,4,5}-raw.txt`).** After steps 1–5 both write modes allocate
+only the three protocol objects per request (callgrind). Server CPU per request, INLINE vs CHANNEL: **1 reactor
+−8 %** (7.10 vs 7.75 µs; throughput 1.016, 6 rounds), **4 reactors / 48 connections −10 %** (8.52 vs 9.43 µs;
+throughput 1.006, 4/6). **INLINE becomes the default** (`MSGTRANS_WRITE_MODE=channel` keeps CHANNEL); this revises
+§11's decision, which was measured before the path was allocation-free. GC yields per request at 1 reactor: 2.0 → 0.74.
+A fixed GC target heap (neton-io `GcTuning`, SPEC §24.6) adds ≈ 5 % at 1 reactor; it is left to the application.
+

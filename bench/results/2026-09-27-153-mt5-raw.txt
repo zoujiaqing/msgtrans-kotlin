@@ -1,0 +1,21 @@
+# host=service load=0.14
+# 4 reactors (unpinned), 48 conns, 64 B
+rpc-channel thr=106746.1 req=1061523 yields_per_req=0.078 syscalls_per_req=0.788 cpu_ns_per_req=9353
+rpc-inline thr=106392.1 req=1074975 yields_per_req=0.057 syscalls_per_req=0.802 cpu_ns_per_req=8425
+rpc-inline-gc64 thr=107501.6 req=1077141 yields_per_req=0.022 syscalls_per_req=0.786 cpu_ns_per_req=8340
+rpc-channel thr=108283.7 req=1062480 yields_per_req=0.069 syscalls_per_req=0.774 cpu_ns_per_req=9340
+rpc-inline thr=108578.0 req=1090831 yields_per_req=0.064 syscalls_per_req=0.785 cpu_ns_per_req=8506
+rpc-inline-gc64 thr=111085.4 req=1097910 yields_per_req=0.007 syscalls_per_req=0.737 cpu_ns_per_req=8392
+rpc-channel thr=106230.1 req=1072199 yields_per_req=0.066 syscalls_per_req=0.793 cpu_ns_per_req=9079
+rpc-inline thr=107162.9 req=1075122 yields_per_req=0.067 syscalls_per_req=0.809 cpu_ns_per_req=8535
+rpc-inline-gc64 thr=95036.4 req=928997 yields_per_req=0.026 syscalls_per_req=0.778 cpu_ns_per_req=10423
+rpc-channel thr=108293.8 req=1046142 yields_per_req=0.085 syscalls_per_req=0.782 cpu_ns_per_req=9510
+rpc-inline thr=96390.1 req=991167 yields_per_req=0.061 syscalls_per_req=0.806 cpu_ns_per_req=9461
+rpc-inline-gc64 thr=92666.7 req=915643 yields_per_req=0.015 syscalls_per_req=0.753 cpu_ns_per_req=10475
+rpc-channel thr=104782.1 req=1038113 yields_per_req=0.104 syscalls_per_req=0.786 cpu_ns_per_req=9609
+rpc-inline thr=110428.5 req=1095270 yields_per_req=0.074 syscalls_per_req=0.784 cpu_ns_per_req=8571
+rpc-inline-gc64 thr=108901.9 req=1076235 yields_per_req=0.026 syscalls_per_req=0.743 cpu_ns_per_req=8680
+rpc-channel thr=102548.9 req=1034987 yields_per_req=0.099 syscalls_per_req=0.775 cpu_ns_per_req=9729
+rpc-inline thr=108749.7 req=1084948 yields_per_req=0.058 syscalls_per_req=0.798 cpu_ns_per_req=8344
+rpc-inline-gc64 thr=107415.4 req=1079556 yields_per_req=0.028 syscalls_per_req=0.758 cpu_ns_per_req=8529
+# done

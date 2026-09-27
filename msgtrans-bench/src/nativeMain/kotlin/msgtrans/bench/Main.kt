@@ -2,8 +2,6 @@
 
 package msgtrans.bench
 
-import kotlinx.cinterop.toKString
-
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.staticCFunction
 import neton.io.net.dumpReactorStats
@@ -66,10 +64,7 @@ fun benchServerMain(args: Array<String>) {
     val reactors = kv["reactors"]?.toIntOrNull() ?: 1
     // Bench knob: fix the GC target heap instead of letting the runtime autotune it (fewer GCs, each
     // with its safepoint spin; msgtrans SPEC §12).
-    platform.posix.getenv("NETON_IO_GC_TARGET_MB")?.toKString()?.toLongOrNull()?.let { mb ->
-        @OptIn(kotlin.native.runtime.NativeRuntimeApi::class)
-        run { kotlin.native.runtime.GC.autotune = false; kotlin.native.runtime.GC.targetHeapBytes = mb shl 20 }
-    }
+    neton.io.net.GcTuning.fromEnvironment()
     runReactor {
         when (mode) {
             "raw" -> RawLayer.serve(this, host, port, reactors)

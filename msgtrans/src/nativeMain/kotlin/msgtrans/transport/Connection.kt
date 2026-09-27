@@ -49,7 +49,9 @@ import kotlin.coroutines.resumeWithException
  *   the comparison to one variable), same close semantics. A writer cancelled mid-write hands the
  *   partially written buffer and the remaining queue to a successor so the byte stream stays intact.
  *
- * Selected per connection; default from `MSGTRANS_WRITE_MODE` (`channel` | `inline`), else CHANNEL.
+ * Selected per connection; default from `MSGTRANS_WRITE_MODE` (`channel` | `inline`), else INLINE
+ * (SPEC §12: with the allocation-free path INLINE uses 8–10 % less server CPU per request than
+ * CHANNEL at 1 and 4 reactors, at equal or better throughput).
  */
 enum class WriteMode {
     CHANNEL, INLINE;
@@ -58,8 +60,8 @@ enum class WriteMode {
         @OptIn(ExperimentalForeignApi::class)
         val default: WriteMode by lazy {
             when (platform.posix.getenv("MSGTRANS_WRITE_MODE")?.toKString()?.lowercase()) {
-                "inline" -> INLINE
-                "channel", null, "" -> CHANNEL
+                "inline", null, "" -> INLINE
+                "channel" -> CHANNEL
                 else -> throw IllegalArgumentException("MSGTRANS_WRITE_MODE must be channel|inline")
             }
         }
