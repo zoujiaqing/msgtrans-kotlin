@@ -47,12 +47,12 @@ class PacketCodec(
     override fun decode(buf: Buffer): Packet? {
         if (buf.readableBytes < Packet.FIXED_HEADER_SIZE) return null
 
-        val version = buf.getByte(0).toInt() and 0xFF
+        val version = buf.getUnsignedByte(0)
         if (version != Packet.PROTOCOL_VERSION) throw ProtocolException("unsupported version=$version")
 
-        val compression = Compression.fromCode(buf.getByte(1).toInt() and 0xFF)
-        val type = PacketType.fromCode(buf.getByte(2).toInt() and 0xFF)
-        val bizType = buf.getByte(3).toInt() and 0xFF
+        val compression = Compression.fromCode(buf.getUnsignedByte(1))
+        val type = PacketType.fromCode(buf.getUnsignedByte(2))
+        val bizType = buf.getUnsignedByte(3)
         val messageId = buf.getU32(4)
         val extHeaderLen = buf.getU16(8)
         val payloadLen = buf.getU32(10).toLong() and 0xFFFFFFFFL
@@ -71,28 +71,12 @@ class PacketCodec(
     }
 }
 
-// ---- big-endian helpers on Buffer ----
+// ---- big-endian helpers: neton-io's Buffer primitives, one bounds check per value (neton-io SPEC §24.10) ----
 
-private fun Buffer.writeU16(value: Int) {
-    writeByte(((value ushr 8) and 0xFF).toByte())
-    writeByte((value and 0xFF).toByte())
-}
+private fun Buffer.writeU16(value: Int) = writeShort(value)
 
-private fun Buffer.writeU32(value: UInt) {
-    val v = value.toInt()
-    writeByte(((v ushr 24) and 0xFF).toByte())
-    writeByte(((v ushr 16) and 0xFF).toByte())
-    writeByte(((v ushr 8) and 0xFF).toByte())
-    writeByte((v and 0xFF).toByte())
-}
+private fun Buffer.writeU32(value: UInt) = writeInt(value.toInt())
 
-private fun Buffer.getU16(offset: Int): Int =
-    ((getByte(offset).toInt() and 0xFF) shl 8) or (getByte(offset + 1).toInt() and 0xFF)
+private fun Buffer.getU16(offset: Int): Int = getUnsignedShort(offset)
 
-private fun Buffer.getU32(offset: Int): UInt {
-    val b0 = getByte(offset).toInt() and 0xFF
-    val b1 = getByte(offset + 1).toInt() and 0xFF
-    val b2 = getByte(offset + 2).toInt() and 0xFF
-    val b3 = getByte(offset + 3).toInt() and 0xFF
-    return ((b0 shl 24) or (b1 shl 16) or (b2 shl 8) or b3).toUInt()
-}
+private fun Buffer.getU32(offset: Int): UInt = getInt(offset).toUInt()
