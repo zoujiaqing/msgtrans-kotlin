@@ -425,3 +425,18 @@ normal completion and built a cancellation exception (a stack walk, 7.9 % of cli
 (SPEC §24.12) and in `ReactorQueue`. rpc after the fix: INLINE 86k, CHANNEL 94k (4 rounds each, both within the 80–104k run-to-run
 spread of this host); before: INLINE 42k. The same bug was present before INLINE became the default (z4 build: 40k with INLINE).
 Step 6 (ReactorResumer + Ring on the request path): rpc server 6983 → 6521 instructions per request, throughput 1.036 (6/6).
+
+## 13. Allocation-light client request path (2026-09-27)
+
+**Evidence** (153, callgrind on `benchClient` rpc, 12 connections): the client allocates ≈ 30 objects per request, the server 3.
+Sites: `withContext(owner)` (a coroutine, two context merges, a child-job link), `CompletableDeferred` and its `await` (≈ 7:
+the deferred, two await frames, a CancellableContinuation, parent handle, cancellation disposer, resumed state), the pending
+registry (`HashMap<UInt, …>`: a boxed id and an entry), the deadline (a lambda and a reactor timer), the request/response
+Packets and payload copies. For the PulseKit SDK this client runs on devices: allocations there are GC time and battery.
+
+Steps (allocation counts by callgrind; contracts of §3 / §4 unchanged; all tests pass):
+- **A.** A caller already on the owning reactor runs the request body directly; `withContext` only for other threads.
+- **B.** The pending registry is an open-addressing `IdMap` (Int keys, no boxing, no entries).
+- **C.** The request waits on its own raw continuation (resumed through neton-io's `ReactorResumer`, cancellation watched
+  once per caller job) instead of a `CompletableDeferred`; CHANNEL mode's deadline race against a full mailbox keeps a
+  deferred only on that slow path.

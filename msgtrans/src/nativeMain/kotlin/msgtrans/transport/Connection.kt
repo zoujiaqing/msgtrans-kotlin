@@ -176,6 +176,7 @@ class Connection internal constructor(
         scope.coroutineContext[ContinuationInterceptor] as? CoroutineContext
             ?: error("connection scope has no dispatcher")
 
+    private val ownerInterceptor = owner[ContinuationInterceptor]
     private val codec = PacketCodec(config.maxPayloadLength)
     private val io = Io(stream)
     private val framed = Framed(io, codec, codec)
@@ -197,7 +198,7 @@ class Connection internal constructor(
     private val inboundRequests = ReactorQueue<Packet>(config.inboundCapacity, owner)
     private val inboundEvents = Channel<Message>(config.inboundCapacity)
 
-    private val pending = HashMap<UInt, CompletableDeferred<Packet>>()
+    private val pending = IdMap<CompletableDeferred<Packet>>()
     private var requestId: UInt = 0u   // per-session, refuses to wrap
     private var oneWayId: UInt = 0u    // separate, free to wrap
     private var requestHandler: RequestHandler? = null
@@ -515,8 +516,16 @@ class Connection internal constructor(
         bizType: Int = 0,
         timeoutMillis: Long = config.requestTimeoutMillis,
         compression: Compression = Compression.None,
-    ): ByteArray =
-        withContext(owner) {
+    ): ByteArray {
+        // SPEC §13 step A: a caller already on the owning reactor (the common case) runs the body
+        // directly — withContext cost a coroutine, a context merge and a child-job link per request.
+        if (kotlin.coroutines.coroutineContext[ContinuationInterceptor] === ownerInterceptor) {
+            return requestOnOwner(payload, bizType, timeoutMillis, compression)
+        }
+        return withContext(owner) { requestOnOwner(payload, bizType, timeoutMillis, compression) }
+    }
+
+    private suspend fun requestOnOwner(payload: ByteArray, bizType: Int, timeoutMillis: Long, compression: Compression): ByteArray {
             check(!closed) { "connection closed" }
             val encoded = prepareOutboundPayload(payload, compression)
             val id = nextRequestId()
@@ -542,7 +551,7 @@ class Connection internal constructor(
                         cont.invokeOnCancellation { inFlightWaiters.remove(req); req.slotCont = null }
                     }
                 }
-                if (req.result.isCompleted) return@withContext req.result.await().payload // timed out waiting
+                if (req.result.isCompleted) return req.result.await().payload // timed out waiting
                 if (closed) throw ConnectionClosedException()
                 pending[id] = req.result
                 enqueueForRequest(Packet(
@@ -550,7 +559,7 @@ class Connection internal constructor(
                 ), req)
                 // If the deadline fired while we were parked for mailbox room, the result is
                 // already completed with RequestTimeoutException and await() rethrows it here.
-                return@withContext req.result.await().payload
+                return req.result.await().payload
             } finally {
                 deadline?.dispose()
                 inFlightWaiters.remove(req)
@@ -583,7 +592,12 @@ class Connection internal constructor(
         payload: ByteArray,
         bizType: Int = 0,
         compression: Compression = Compression.None,
-    ): Unit = withContext(owner) {
+    ) {
+        if (kotlin.coroutines.coroutineContext[ContinuationInterceptor] === ownerInterceptor) return sendOnOwner(payload, bizType, compression)
+        return withContext(owner) { sendOnOwner(payload, bizType, compression) }
+    }
+
+    private suspend fun sendOnOwner(payload: ByteArray, bizType: Int, compression: Compression) {
         check(!closed) { "connection closed" }
         val encoded = prepareOutboundPayload(payload, compression)
         enqueue(Packet(PacketType.OneWay, nextOneWayId(), bizType, encoded, compression = compression))
@@ -607,7 +621,7 @@ class Connection internal constructor(
         inboundRequests.close()
         inboundEvents.close()
         io.close()
-        pending.values.forEach { it.completeExceptionally(ConnectionClosedException()) }
+        pending.forEachValue { it.completeExceptionally(ConnectionClosedException()) }
         pending.clear()
         sendQueue.clear()
         queuedBytes = 0L
