@@ -364,7 +364,9 @@ class Connection internal constructor(
      * Cancellation mid-write keeps [writerActive] set and launches a successor; any I/O error
      * closes the connection.
      */
-    private suspend fun drainAsWriter() {
+    // SPEC §12 step 5: inline, so draining from enqueue (the INLINE write mode's common case) adds no
+    // coroutine frame; the cancellation successor below calls the non-inline [drainAsSuccessor].
+    private suspend inline fun drainAsWriter() {
         writerActive = true
         var handedOff = false
         try {
@@ -383,7 +385,7 @@ class Connection internal constructor(
                 // we were handing off - an uncaught exception that took the process down.
                 scope.launch {
                     try {
-                        drainAsWriter()
+                        drainAsSuccessor()
                     } catch (e: CancellationException) {
                         throw e
                     } catch (t: Throwable) {
@@ -401,7 +403,10 @@ class Connection internal constructor(
         }
     }
 
-    private suspend fun writeAll() {
+    /** [drainAsWriter] as a real function, for the successor coroutine (an inline function cannot call itself). */
+    private suspend fun drainAsSuccessor() = drainAsWriter()
+
+    private suspend inline fun writeAll() {
         try {
             io.stream.write(io.writeBuf)
         } catch (e: IoException) {

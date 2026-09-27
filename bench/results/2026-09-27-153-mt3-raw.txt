@@ -1,0 +1,41 @@
+# host=service load=1.28
+msgtrans linuxX64 tests=41 failures=0
+raw thr=135917.5 req=1363624 yields_per_req=0.000 syscalls_per_req=0.330 cpu_ns_per_req=7077
+framed thr=123973.9 req=1338433 yields_per_req=0.725 syscalls_per_req=1.043 cpu_ns_per_req=7223
+rpc-channel thr=90170.8 req=928383 yields_per_req=0.863 syscalls_per_req=1.305 cpu_ns_per_req=8195
+rpc-inline thr=100368.9 req=1006046 yields_per_req=1.180 syscalls_per_req=1.644 cpu_ns_per_req=7096
+raw thr=174931.7 req=1671837 yields_per_req=0.000 syscalls_per_req=0.378 cpu_ns_per_req=5793
+framed thr=176627.6 req=1708418 yields_per_req=0.734 syscalls_per_req=1.078 cpu_ns_per_req=5725
+rpc-channel thr=100415.3 req=1009324 yields_per_req=0.867 syscalls_per_req=1.319 cpu_ns_per_req=7448
+rpc-inline thr=100629.3 req=1007172 yields_per_req=1.173 syscalls_per_req=1.635 cpu_ns_per_req=7122
+raw thr=147584.9 req=1600702 yields_per_req=0.000 syscalls_per_req=0.344 cpu_ns_per_req=6087
+framed thr=137090.9 req=1345533 yields_per_req=0.729 syscalls_per_req=1.038 cpu_ns_per_req=7247
+rpc-channel thr=89336.5 req=921538 yields_per_req=0.855 syscalls_per_req=1.280 cpu_ns_per_req=8664
+rpc-inline thr=87213.6 req=896008 yields_per_req=1.167 syscalls_per_req=1.616 cpu_ns_per_req=8305
+raw thr=133905.1 req=1344865 yields_per_req=0.000 syscalls_per_req=0.297 cpu_ns_per_req=7302
+framed thr=119677.4 req=1200315 yields_per_req=0.720 syscalls_per_req=1.021 cpu_ns_per_req=8111
+rpc-channel thr=102528.3 req=999278 yields_per_req=0.876 syscalls_per_req=1.317 cpu_ns_per_req=7826
+rpc-inline thr=94073.7 req=959747 yields_per_req=1.166 syscalls_per_req=1.618 cpu_ns_per_req=7688
+== rpc-channel callgrind requests=117185
+117185 ???:kfun:msgtrans.transport.Connection.$handlerLoopCOROUTINE$10.invokeSuspend#internal
+117185 ???:kfun:msgtrans.core.PacketCodec#decode(neton.io.bytes.Buffer){}msgtrans.core.Packet?
+117185 ???:kfun:kotlin.collections#copyOfUninitializedElements__at__kotlin.ByteArray(kotlin.Int;kotlin.Int){}kotlin.ByteArray
+7382 ???:kfun:kotlinx.coroutines.channels.ChannelSegment#<init>(kotlin.Long;kotlinx.coroutines.channels.ChannelSegment<1:0>?;kotlinx.coroutines.channels.BufferedChannel<1:0>?;kotlin.Int){}
+3696 ???:kfun:kotlin.collections#copyOfUninitializedElements__at__kotlin.Array<0:0>(kotlin.Int;kotlin.Int){0§<kotlin.Any?>}kotlin.Array<0:0>
+3660 ???:kfun:kotlinx.coroutines.internal#findSegmentInternal__at__0:0(kotlin.Long;kotlin.Function2<kotlin.Long0:00:0>){0§<kotlinx.coroutines.internal.Segment<0:0>>}kotlinx.coroutines.internal.Segment
+390 ???:kfun:kotlin#lazy(kotlin.Function0<0:0>){0§<kotlin.Any?>}kotlin.Lazy<0:0>
+210 ???:kfun:kotlinx.atomicfu.locks.SynchronizedObject#lock(){}
+140 ???:kfun:kotlinx.atomicfu.locks.SynchronizedObject#unlock(){}
+130 ???:kfun:msgtrans.transport.Connection#<init>(neton.io.core.IoStream;kotlinx.coroutines.CoroutineScope;msgtrans.transport.ConnectionConfig){}
+== rpc-inline callgrind requests=132219
+132219 ???:kfun:msgtrans.transport.Connection.writeAll#internal
+132219 ???:kfun:msgtrans.transport.Connection.drainAsWriter#internal
+132219 ???:kfun:msgtrans.transport.Connection.$handlerLoopCOROUTINE$10.invokeSuspend#internal
+132219 ???:kfun:msgtrans.core.PacketCodec#decode(neton.io.bytes.Buffer){}msgtrans.core.Packet?
+132219 ???:kfun:kotlin.collections#copyOfUninitializedElements__at__kotlin.ByteArray(kotlin.Int;kotlin.Int){}kotlin.ByteArray
+234 ???:kfun:kotlin#lazy(kotlin.Function0<0:0>){0§<kotlin.Any?>}kotlin.Lazy<0:0>
+130 ???:kfun:msgtrans.transport.Connection#<init>(neton.io.core.IoStream;kotlinx.coroutines.CoroutineScope;msgtrans.transport.ConnectionConfig){}
+123 ???:kfun:kotlinx.atomicfu.locks.SynchronizedObject#lock(){}
+82 ???:kfun:kotlinx.atomicfu.locks.SynchronizedObject#unlock(){}
+78 ???:kfun:kotlin.collections.HashMap#<init>(kotlin.Int){}
+# done
