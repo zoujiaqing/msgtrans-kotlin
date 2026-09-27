@@ -417,3 +417,11 @@ throughput 1.006, 4/6). **INLINE becomes the default** (`MSGTRANS_WRITE_MODE=cha
 §11's decision, which was measured before the path was allocation-free. GC yields per request at 1 reactor: 2.0 → 0.74.
 A fixed GC target heap (neton-io `GcTuning`, SPEC §24.6) adds ≈ 5 % at 1 reactor; it is left to the application.
 
+
+**Client-side regression found and fixed (raw `bench/results/2026-09-27-153-mt10-raw.txt`).** With INLINE writes on io_uring the
+*client* ran rpc at ≈ 40k req/s against ≈ 90k for CHANNEL (the server was fine: new server + old client 87–103k). The requesting
+coroutine writes the socket itself inside `request()`'s `withContext` job; neton-io's cancellation watch on that job ran on every
+normal completion and built a cancellation exception (a stack walk, 7.9 % of client CPU in `_Unwind_Find_FDE`). Fixed in neton-io
+(SPEC §24.12) and in `ReactorQueue`. rpc after the fix: INLINE 86k, CHANNEL 94k (4 rounds each, both within the 80–104k run-to-run
+spread of this host); before: INLINE 42k. The same bug was present before INLINE became the default (z4 build: 40k with INLINE).
+Step 6 (ReactorResumer + Ring on the request path): rpc server 6983 → 6521 instructions per request, throughput 1.036 (6/6).
