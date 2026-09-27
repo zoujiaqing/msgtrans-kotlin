@@ -529,3 +529,11 @@ neton-io is only the I/O and networking foundation; msgtrans is one of the proto
   (neton-io §28.6); any other behaviour it needs is added to that suite first.
 - **Fairness.** neton-io §28.4's scenarios are also run through msgtrans rpc (hot pipelined connections with many
   small requests + cold connections), since msgtrans' INLINE writer and handler loop add their own scheduling.
+
+### 15.1 Acceptance for the optional resumer (revision 2, after review)
+Code inspection is not enough: msgtrans gets a switch (`MSGTRANS_REACTOR_RESUMER=0`, read once at startup) that makes
+`ReactorQueue` use plain `intercepted().resume` instead of `ReactorResumer`. The full test suite — correctness,
+cancellation and close tests included — must pass in both modes on every platform it runs on (macOS; Linux io_uring /
+epoll). When neton-io §28.3 makes `ReactorResumer.resume` return `Boolean`, a rejected resume (`false`: the reactor is
+stopping or stopped) makes `ReactorQueue` drop the item (releasing what it carries), mark itself closed, and stop
+resuming that continuation; a test covers it.
