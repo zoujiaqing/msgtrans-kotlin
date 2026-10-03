@@ -2,3 +2,8 @@ msgtrans
 Copyright 2026 Neton Stream (https://netonstream.com)
 
 Licensed under the Apache License, Version 2.0. See LICENSE.
+
+This product includes Zstandard (https://github.com/facebook/zstd), compiled into the Android
+Native targets from src/nativeInterop/zstd:
+Copyright (c) Meta Platforms, Inc. and affiliates. All rights reserved.
+Licensed under the BSD License; see src/nativeInterop/zstd/LICENSE.

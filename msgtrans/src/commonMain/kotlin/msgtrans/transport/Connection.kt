@@ -1,7 +1,5 @@
 package msgtrans.transport
 
-import kotlinx.cinterop.ExperimentalForeignApi
-import kotlinx.cinterop.toKString
 import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -23,9 +21,6 @@ import kotlin.coroutines.ContinuationInterceptor
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
 import msgtrans.core.ProtocolException
-import platform.posix.fprintf
-import platform.posix.fflush
-import platform.posix.stderr
 import msgtrans.core.Packet
 import msgtrans.core.PacketCodec
 import msgtrans.core.PacketType
@@ -58,9 +53,8 @@ enum class WriteMode {
     CHANNEL, INLINE;
 
     companion object {
-        @OptIn(ExperimentalForeignApi::class)
         val default: WriteMode by lazy {
-            when (platform.posix.getenv("MSGTRANS_WRITE_MODE")?.toKString()?.lowercase()) {
+            when (envVar("MSGTRANS_WRITE_MODE")?.lowercase()) {
                 "inline", null, "" -> INLINE
                 "channel" -> CHANNEL
                 else -> throw IllegalArgumentException("MSGTRANS_WRITE_MODE must be channel|inline")
@@ -504,10 +498,8 @@ class Connection internal constructor(
     }
 
     /** One line on stderr; connection faults must be visible without taking the process down. */
-    @OptIn(ExperimentalForeignApi::class)
     private fun reportConnectionFault(what: String, t: Throwable) {
-        fprintf(stderr, "msgtrans: connection closed after %s: %s\n", what, (t.message ?: t.toString()))
-        fflush(stderr)
+        writeStderrLine("msgtrans: connection closed after $what: ${t.message ?: t.toString()}")
     }
 
     /**

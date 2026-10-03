@@ -71,7 +71,7 @@ depend on `msgtrans`; nothing needs the codec without the session, so the two ar
 `msgtrans-bench` (the harness behind `bench/run.sh`) is not published.
 
 ```kotlin
-dependencies { implementation("com.netonstream:msgtrans:0.1.0") }
+dependencies { implementation("com.netonstream:msgtrans:0.2.0") }
 ```
 
 Consumers must compile with the same Kotlin version as the release (2.4.0): the artifacts are
@@ -116,6 +116,9 @@ it — so a connection reference can be shared with worker threads safely.
 ```bash
 ./gradlew :msgtrans:macosArm64Test              # codec + request/response over real TCP
 ./gradlew :msgtrans:linkDebugTestLinuxX64       # cross-compile for Linux
+./gradlew :msgtrans:linkDebugTestAndroidNativeArm64
+adb push msgtrans/build/bin/androidNativeArm64/debugTest/test.kexe /data/local/tmp/
+adb shell /data/local/tmp/test.kexe              # on an arm64 device or emulator
 ```
 
 ## Status
@@ -149,7 +152,21 @@ unimplemented).
 
 Compression interoperability is verified in both directions against msgtrans-rust with `flate2`
 and `zstd`: Rust fixtures decode in Kotlin, and Kotlin output decodes in Rust. The zstd codec is
-Square's native KMP packaging of libzstd; zlib uses the platform library. Next: the remaining wire
+Square's native KMP packaging of libzstd on Apple and Linux; it publishes no Android Native variant,
+so the four `androidNative*` targets compile the vendored upstream zstd 1.5.7
+(`src/nativeInterop/zstd`, built with the NDK's clang and embedded in the klib) behind the same
+streaming calls. zlib uses the platform library through the deflate/inflate stream API, whose
+counters have one width on every target.
+
+JVM (2026-10-03): the transport is common code over neton-io's NIO reactor; zstd comes from zstd-kmp's JVM
+artifact and zlib from `java.util.zip`. The full suite (44 cases, moved to commonTest) passes on JDK 17
+(`./gradlew :msgtrans:jvmTest`) as on macOS. Bytecode 1.8, so an Android library can depend on it.
+
+Android Native (2026-10-03): the full suite (44 cases, including the Rust fixtures and compressed
+transport) passes on an arm64-v8a emulator (API 36) running the test binary under adb; armeabi-v7a,
+x86 and x86_64 compile and link. Building those targets needs an NDK (`ANDROID_NDK_HOME`, or the
+newest under `<sdk>/ndk`). The zlib compressor moved from `compress2` to deflate streaming at the
+same default level for that width reason; Kotlin-to-Rust zlib decoding has not been re-run since. Next: the remaining wire
 fixtures against Rust/TS, WebSocket transport, and the ext-header/route-tag path.
 
 ## Benchmark

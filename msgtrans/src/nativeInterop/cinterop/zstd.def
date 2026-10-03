@@ -1,0 +1,53 @@
+# Zstandard for the Android Native targets, which zstd-kmp does not publish. The library itself is
+# compiled into the klib from src/nativeInterop/zstd/zstd.c (see build.gradle.kts).
+#
+# Kotlin binds only the shims below, not zstd.h. zstd counts in size_t, which is 32-bit on the
+# armeabi-v7a/x86 ABIs and 64-bit on arm64-v8a/x86_64, and code shared by all four (androidNativeMain)
+# cannot use a type whose width differs between its targets. The shims take and return fixed-width
+# integers and report errors as zstd's own error name.
+package = msgtrans.zstd
+---
+#include "zstd.h"
+
+/** NULL on success, else zstd's error name. */
+static const char *msgtrans_zstd_error(size_t code) {
+    return ZSTD_isError(code) ? ZSTD_getErrorName(code) : 0;
+}
+
+static void *msgtrans_zstd_create_cctx(void) { return ZSTD_createCCtx(); }
+static void msgtrans_zstd_free_cctx(void *cctx) { ZSTD_freeCCtx((ZSTD_CCtx *)cctx); }
+static void *msgtrans_zstd_create_dctx(void) { return ZSTD_createDCtx(); }
+static void msgtrans_zstd_free_dctx(void *dctx) { ZSTD_freeDCtx((ZSTD_DCtx *)dctx); }
+
+static const char *msgtrans_zstd_set_level(void *cctx, int level) {
+    return msgtrans_zstd_error(ZSTD_CCtx_setParameter((ZSTD_CCtx *)cctx, ZSTD_c_compressionLevel, level));
+}
+
+/**
+ * One ZSTD_compressStream2(..., ZSTD_e_end) call. Positions are in/out; *remaining receives zstd's
+ * "bytes left to flush" (0 when the frame is complete).
+ */
+static const char *msgtrans_zstd_compress_end(
+    void *cctx, void *dst, int dst_capacity, int *dst_pos,
+    const void *src, int src_size, int *src_pos, long long *remaining) {
+    ZSTD_outBuffer out = { dst, (size_t)dst_capacity, (size_t)*dst_pos };
+    ZSTD_inBuffer in = { src, (size_t)src_size, (size_t)*src_pos };
+    size_t code = ZSTD_compressStream2((ZSTD_CCtx *)cctx, &out, &in, ZSTD_e_end);
+    *dst_pos = (int)out.pos;
+    *src_pos = (int)in.pos;
+    *remaining = ZSTD_isError(code) ? 0 : (long long)code;
+    return msgtrans_zstd_error(code);
+}
+
+/** One ZSTD_decompressStream call; *remaining is 0 once a frame has been fully decoded. */
+static const char *msgtrans_zstd_decompress(
+    void *dctx, void *dst, int dst_capacity, int *dst_pos,
+    const void *src, int src_size, int *src_pos, long long *remaining) {
+    ZSTD_outBuffer out = { dst, (size_t)dst_capacity, (size_t)*dst_pos };
+    ZSTD_inBuffer in = { src, (size_t)src_size, (size_t)*src_pos };
+    size_t code = ZSTD_decompressStream((ZSTD_DCtx *)dctx, &out, &in);
+    *dst_pos = (int)out.pos;
+    *src_pos = (int)in.pos;
+    *remaining = ZSTD_isError(code) ? 0 : (long long)code;
+    return msgtrans_zstd_error(code);
+}

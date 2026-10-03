@@ -172,14 +172,14 @@ class ContractTest {
         // We must NOT block the reactor thread on the worker's future, so the worker reports back
         // through a deferred we await (suspending, freeing the reactor to run the posted work).
         val reply = CompletableDeferred<String>()
-        val worker = kotlin.native.concurrent.Worker.start()
-        worker.execute(kotlin.native.concurrent.TransferMode.SAFE, { conn to reply }) { (c, out) ->
+        val worker = startTestWorker()
+        worker.submit {
             kotlinx.coroutines.runBlocking {
-                out.complete(c.request("x".encodeToByteArray()).decodeToString())
+                reply.complete(conn.request("x".encodeToByteArray()).decodeToString())
             }
         }
         assertEquals("echo:x", reply.await())
-        worker.requestTermination()
+        worker.stop()
         conn.close()
         serverJob.cancelAndJoin()
         server.close()

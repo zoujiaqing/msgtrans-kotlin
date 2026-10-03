@@ -1,7 +1,7 @@
 plugins { kotlin("multiplatform") version "2.4.0" apply false }
 allprojects {
     group = "com.netonstream"
-    version = "0.2.0-SNAPSHOT"
+    version = "0.2.0"
 }
 
 // ---------- Maven Central publishing ----------
@@ -23,10 +23,17 @@ subprojects {
     afterEvaluate {
         val sub = this@subprojects
         val publishing = sub.extensions.getByType<org.gradle.api.publish.PublishingExtension>()
+        // Central requires a javadoc jar beside every jar. Dokka is not wired in; as in neton-io,
+        // the jar carries the README, which is where the API is documented.
+        val apiDocsJar = sub.tasks.register<Jar>("apiDocsJar") {
+            archiveClassifier.set("javadoc")
+            from(rootProject.file("README.md"))
+        }
 
         // Only group / version / POM. The KMP plugin owns the artifactIds (one per target plus
         // the root metadata publication); overriding them would make the publications collide.
         publishing.publications.withType<MavenPublication>().configureEach {
+            artifact(apiDocsJar)
             groupId = sub.group.toString()
             version = sub.version.toString()
             pom {

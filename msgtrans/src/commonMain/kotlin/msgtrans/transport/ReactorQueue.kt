@@ -1,6 +1,5 @@
 package msgtrans.transport
 
-import kotlinx.cinterop.toKString
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.InternalCoroutinesApi
@@ -151,11 +150,8 @@ internal class ReactorQueue<T : Any>(private val capacity: Int, private val owne
 }
 
 /** SPEC §15.1: `MSGTRANS_REACTOR_RESUMER=0` turns the resumer fast path off (read once). */
-@OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
-internal val resumerEnabled: Boolean = platform.posix.getenv("MSGTRANS_REACTOR_RESUMER")?.toKString() != "0"
+internal val resumerEnabled: Boolean = envVar("MSGTRANS_REACTOR_RESUMER") != "0"
 
-@OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
 private fun reportRefusedResume() {
-    platform.posix.fprintf(platform.posix.stderr, "msgtrans: a reactor refused a queue hand-off (it had stopped); the queue is closed\n")
-    platform.posix.fflush(platform.posix.stderr)
+    writeStderrLine("msgtrans: a reactor refused a queue hand-off (it had stopped); the queue is closed")
 }

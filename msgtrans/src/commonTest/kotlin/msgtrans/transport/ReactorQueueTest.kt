@@ -13,15 +13,11 @@ import neton.io.core.ClosedException
 import neton.io.net.runReactor
 import kotlin.coroutines.ContinuationInterceptor
 import kotlin.coroutines.coroutineContext
-import kotlin.native.concurrent.ObsoleteWorkersApi
-import kotlin.native.concurrent.TransferMode
-import kotlin.native.concurrent.Worker
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /** SPEC §11 step 2: the reactor-local queue keeps the Channel contract it replaces. */
-@OptIn(ObsoleteWorkersApi::class)
 class ReactorQueueTest {
 
     private suspend fun queue(capacity: Int) = ReactorQueue<Int>(capacity, coroutineContext[ContinuationInterceptor]!!)
@@ -78,10 +74,10 @@ class ReactorQueueTest {
         var outcome: Throwable? = null
         val r = launch { try { q.receive() } catch (t: Throwable) { outcome = t; throw t } }
         yield()
-        val w = Worker.start(name = "canceller")
-        w.execute(TransferMode.SAFE, { r }) { it.cancel() }
+        val w = startTestWorker("canceller")
+        w.submit { r.cancel() }
         withTimeout(2_000) { r.join() }
-        w.requestTermination().result
+        w.stop()
         assertTrue(outcome is CancellationException, "expected CancellationException, got $outcome")
         q.send(1)                                     // the queue still works after a cancelled receiver
         assertEquals(1, q.receive())
