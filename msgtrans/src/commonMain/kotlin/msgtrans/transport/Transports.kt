@@ -12,11 +12,12 @@ import neton.io.net.listen as netListen
  * send / request API over it. The transport produces the byte [IoStream] a [Connection] wraps;
  * the connection/session logic (framing, correlation, timeouts) is protocol-independent.
  *
- * TCP is implemented here; QUIC is `QuicClientTransport` / `QuicServerTransport` in the separate
- * `com.netonstream:msgtrans-quic` artifact (it brings QUIC and OpenSSL); WebSocket is a declared binding
- * point. msgtrans-rust exposes `TcpClientTransport` / `WebSocketClientTransport` / `QuicClientTransport`
- * and the same `client.send` / `client.request`; the Kotlin surface keeps that shape so business code
- * does not change when a protocol is added.
+ * TCP is implemented here; QUIC (`QuicClientTransport` / `QuicServerTransport`) and WebSocket
+ * (`WebSocketClientTransport` / `WebSocketServerTransport`) are in the separate artifacts
+ * `com.netonstream:msgtrans-quic` and `com.netonstream:msgtrans-websocket`. msgtrans-rust exposes
+ * `TcpClientTransport` / `WebSocketClientTransport` / `QuicClientTransport` and the same
+ * `client.send` / `client.request`; the Kotlin surface keeps that shape so business code does not
+ * change when a protocol is added.
  */
 /**
  * How packets are delimited on a transport's byte stream: as they are on TCP ([Packets], the packet header carries the
@@ -91,10 +92,4 @@ class TcpServerTransport(private val host: String, private val port: Int) : Serv
             throw UnsupportedOperationException("a multi-reactor acceptor serves connections on their own reactors; use serve()")
         override fun close() = group.close()
     }
-}
-
-/** Declared binding point; not implemented yet (needs the WebSocket codec/handshake in neton-io). */
-class WebSocketClientTransport(@Suppress("UNUSED_PARAMETER") url: String) : ClientTransport {
-    override suspend fun open(): IoStream =
-        throw NotImplementedError("WebSocket transport is not implemented yet (roadmap: neton-io WS codec)")
 }

@@ -163,20 +163,21 @@ id counter is per-session and refuses to wrap; a reconnect gets a fresh session.
 |---|---|---|---|
 | `msgtrans` | package `msgtrans.core`: `Packet`, `PacketCodec`, zstd/zlib transforms, types and flags; package `msgtrans.transport`: `Connection` (actor), `Transport` client/server, `Message` | Apple + Linux (neton-io reactor) | `com.netonstream:msgtrans` |
 | `msgtrans-quic` | package `msgtrans.transport`: `QuicClientTransport`, `QuicServerTransport`, `QuicTransportOptions` (§16) | Apple + Linux (the targets msgtrans and `com.netonstream:quic` share) | `com.netonstream:msgtrans-quic` |
+| `msgtrans-websocket` | package `msgtrans.transport`: `WebSocketClientTransport`, `WebSocketServerTransport`, `WebSocketTransportOptions` (§17) | Apple + Linux | `com.netonstream:msgtrans-websocket` |
 | `msgtrans-bench` | the harness behind `bench/run.sh` | Apple + Linux | no |
 
 One artifact rather than core/transport: the codec has no consumer without the session (the Rust
 implementation is likewise one crate), and splitting before the first release would have fixed a
 coordinate nobody needs. Future modules layer on top of `msgtrans`: `msgtrans-rpc` (declarative
-`@MsgRpc` with KSP-generated stubs), `msgtrans-ws` (WebSocket transport),
-`msgtrans-testkit` (cross-language conformance fixtures). `msgtrans-quic` exists (§16).
+`@MsgRpc` with KSP-generated stubs), `msgtrans-testkit` (cross-language conformance fixtures).
+`msgtrans-quic` (§16) and `msgtrans-websocket` (§17) exist.
 
 ---
 
 ## 6. Public API (v1)
 
 Multi-protocol binding follows msgtrans-rust: a `ClientTransport` / `ServerTransport` chooses the
-protocol (TCP; QUIC in `msgtrans-quic`, §16; `WebSocketClientTransport` is a declared binding point),
+protocol (TCP; QUIC in `msgtrans-quic`, §16; WebSocket in `msgtrans-websocket`, §17),
 and the session API (`send`, `request`, `requestOrNull`, `onRequest`, `events`) is identical across
 protocols. `request` throws on timeout; `requestOrNull` returns null (mirrors the Rust
 `request(...).data: Option`). A `Connection` is callable from any thread (the call is posted to the
@@ -211,7 +212,7 @@ connection scope), `close`.
 |---|---|
 | v0 (done) | wire-exact codec; Connection session with the contracts; request/response (timeouts, in-flight cap), one-way events, server push; over TCP; suite verified on macOS (kqueue) and Linux (io_uring/epoll, 2026-09-13) |
 | v1 | request timeout (needs a reactor timer); the Diagnostic plane (send confirmations); connection registry / broadcast on the server |
-| v1.5 | QUIC transport (done, §16); WebSocket transport; ext-header / route tag (payload compression is complete) |
+| v1.5 | QUIC transport (done, §16); WebSocket transport (done, §17); ext-header / route tag (payload compression is complete) |
 | v2 | declarative `@MsgRpc` + KSP-generated client stub / server dispatcher / route ids |
 | v2+ | cross-language conformance fixtures; multi-reactor (thread-per-core) once neton-io provides it |
 
@@ -601,5 +602,48 @@ common code). The QUIC transports live in the separate `msgtrans-quic` artifact,
   (quinn sends it from the endpoint driver, and msgtrans-rust's write task does not finish the stream while parked in
   `recv_many`), so the server learns of the end only from its idle timeout (30 s) — correct QUIC behaviour; the peer
   waits 300 ms before exiting, and the script waits past the idle timeout.
-- Release: `msgtrans-quic` needs neton-io's `lookupHost`, so it ships with (or after) the io release that has it.
+- Released as `msgtrans-quic` 0.1.0 with msgtrans 0.3.0, on io 0.3.3 (which brought `lookupHost`).
+
+---
+
+## 17. WebSocket transport, interoperable with msgtrans-rust (2026-10-09)
+
+**Wire** (msgtrans-rust 2.0.0-beta.2, `src/adapters/websocket.rs`), the contract:
+- One binary message per packet (§2), no length prefix; a received binary message must be exactly one packet
+  (`decode_exact_from`). msgtrans-rust's strict policy rejects text messages; its default lenient one wraps a text
+  message, or a binary one that is not a packet, as a OneWay with the raw bytes. Kotlin is strict (a msgtrans peer
+  never sends either).
+- Subprotocol `msgtrans.v1`: offered by the client, echoed by a server that supports it; a client offering none is
+  accepted. The server upgrades only on its configured path (default `/`) and answers 404 otherwise.
+- Keepalive: both sides ping every 30 s and end the session when a ping is not answered within 10 s; the server also
+  has a 300 s idle timeout (not mirrored: the session's own request timeouts and the pings cover a live peer).
+- msgtrans-rust's WebSocket server is plain `ws://`; its client also does `wss://` (system roots, a custom CA, or
+  insecure).
+
+**Design.** `msgtrans-websocket`, a separate artifact like `msgtrans-quic`. The session wraps a byte `IoStream`, so the
+WebSocket is adapted (`WebSocketPacketStream`): written bytes are cut at packet boundaries from each packet's header,
+whatever the write chunking, and each packet goes out as one binary message; each received binary message is checked
+to be exactly one packet and handed on as bytes (`Framing.Packets`, the TCP codec, decodes them). Writes (the
+session's packets, the keepalive's pings, the closing frame) are serialized by a mutex, as the WebSocket allows one
+write operation at a time; reading runs beside them (`WebSocket.split`), and the WebSocket answers pings itself.
+`close` sends a Close frame (1000), bounded by 1 s, then closes the connection.
+- `WebSocketClientTransport(url, options, tlsConnector)`: `ws://`, or `wss://` with a `TlsConnector` (`WssConnector`
+  from `com.netonstream:tls-websocket`). Connect and handshake are bounded by `handshakeTimeout`; failures are
+  `ConnectException` (a 404 included).
+- `WebSocketServerTransport(host, port, path = "/", options, tlsAcceptor)`: a TCP listener whose accepted connections
+  are upgraded in their own coroutines with `handshakeTimeout` (msgtrans-rust's latest fix does the same), so a slow
+  client holds up nobody; `tlsAcceptor` makes it `wss://` (e.g. with `com.netonstream:tls`).
+- `WebSocketTransportOptions`: ping interval, pong timeout, handshake timeout, and the message / frame limit, by
+  default the largest packet `PacketCodec` accepts.
+- The declared `WebSocketClientTransport` stub left `msgtrans` (as the QUIC one did in 0.3.0).
+
+**Verification** (macOS arm64, 2026-10-09; CI runs the same on Linux with epoll and io_uring):
+- `WebSocketTransportTest`: request/response and push, 0 B–3 MB and compressed payloads, 4 sessions × 50 concurrent
+  requests, another path refused (404), `wss://` with both sides on this stack, an unanswered ping ending the session
+  (a peer that never reads), answered pings keeping it, and a text message or a partial packet ending only that
+  session.
+- Interop with msgtrans-rust 2.0.0-beta.2 (`interop/run-websocket-interop.sh`, the same peer and checklist as §16):
+  Kotlin client → Rust server and Rust client → Kotlin server over `ws://`, and the Rust client over `wss://` (custom
+  CA) to the Kotlin server — every check passed; a Rust client on another path got 404, one trusting another CA was
+  refused (`UnknownIssuer`).
 

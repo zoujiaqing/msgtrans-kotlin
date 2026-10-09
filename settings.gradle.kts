@@ -8,4 +8,4 @@ rootProject.name = "msgtrans-kotlin"
 if (file("../io").isDirectory) includeBuild("../io")
 // msgtrans-quic's QUIC, likewise from the sibling checkout where it exists.
 if (file("../quic").isDirectory) includeBuild("../quic")
-include(":msgtrans", ":msgtrans-quic", ":msgtrans-bench")
+include(":msgtrans", ":msgtrans-quic", ":msgtrans-websocket", ":msgtrans-bench")
