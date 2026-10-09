@@ -74,7 +74,7 @@ depend on `msgtrans`; nothing needs the codec without the session, so the two ar
 dependencies { implementation("com.netonstream:msgtrans:0.2.0") }
 ```
 
-Consumers must compile with the same Kotlin version as the release (2.4.0): the artifacts are
+Consumers must compile with the same Kotlin version as the release (2.4.20 from the next release on): the artifacts are
 klibs, and klib binary compatibility is bound to the compiler version.
 
 ## Usage
