@@ -1,9 +1,11 @@
 name: CI
 
+# The tests on macOS (kqueue, and JVM) and Linux x64 (epoll, io_uring, poll, and JVM). io comes from Maven Central
+# (settings.gradle.kts includes the sibling checkout only where it exists). msgtrans has no Windows target.
 on:
   push:
-    branches: [ main ]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   test:
@@ -12,44 +14,49 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: macOS kqueue
-            os: macos-14
-            task: macosArm64Test
-            driver: ""
-          - name: Linux epoll
-            os: ubuntu-latest
-            task: linuxX64Test
-            driver: ""
-          - name: Linux polling
-            os: ubuntu-latest
-            task: linuxX64Test
-            driver: polling
-          - name: Windows
-            os: windows-latest
-            task: mingwX64Test
-            driver: ""
+          - { name: macOS kqueue, os: macos-14, tasks: ":msgtrans:macosArm64Test :msgtrans:jvmTest", driver: "" }
+          - { name: Linux epoll, os: ubuntu-latest, tasks: ":msgtrans:linuxX64Test :msgtrans:jvmTest", driver: epoll }
+          - { name: Linux io_uring, os: ubuntu-latest, tasks: ":msgtrans:linuxX64Test", driver: iouring }
+          - { name: Linux poll, os: ubuntu-latest, tasks: ":msgtrans:linuxX64Test", driver: poll }
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     env:
       NETON_IO_DRIVER: ${{ matrix.driver }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          path: msgtrans-kotlin
-      - name: Check out neton-io (I/O foundation)
-        uses: actions/checkout@v4
-        with:
-          repository: netonframework/neton-io
-          path: neton-io
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew ${{ matrix.task }} --no-daemon --stacktrace
-        working-directory: msgtrans-kotlin
+      - name: Cache Kotlin/Native toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle/libs.versions.toml') }}
+      - name: Test
+        shell: bash
+        run: ./gradlew ${{ matrix.tasks }} --no-daemon --stacktrace --continue
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+          import glob, re
+          tests = fails = 0; failed = []
+          for f in glob.glob('**/build/test-results/**/*.xml', recursive=True):
+              s = open(f, encoding='utf-8', errors='replace').read()
+              m = re.search(r'tests="(\d+)"', s); tests += int(m.group(1)) if m else 0
+              for c in re.finditer(r'<testcase name="([^"]+)" classname="([^"]+)"[^>]*>\s*<failure message="([^"]*)"', s):
+                  fails += 1; failed.append(f"- {c.group(2)}.{c.group(1)}: {c.group(3)[:300]}")
+          print(f"### ${{ matrix.name }}: {tests} tests, {fails} failures")
+          print("\n".join(failed))
+          PY
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: reports-${{ matrix.name }}
-          path: 'msgtrans-kotlin/**/build/reports/tests/**'
+          name: test-results-${{ matrix.name }}
+          path: |
+            */build/test-results/**
+            */build/reports/tests/**
           if-no-files-found: ignore
