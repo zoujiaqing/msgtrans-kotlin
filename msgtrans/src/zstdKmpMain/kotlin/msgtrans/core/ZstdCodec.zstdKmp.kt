@@ -5,7 +5,14 @@ import com.squareup.zstd.getErrorName
 import com.squareup.zstd.zstdCompressor
 import com.squareup.zstd.zstdDecompressor
 
-/** zstd through zstd-kmp, on every target it publishes a variant for. */
+/**
+ * zstd through zstd-kmp, on every target it publishes a variant for.
+ *
+ * zstd-kmp 0.4.0 reports `inputBytesProcessed` minus `inputStart` (it hands zstd the input from `inputStart` and
+ * subtracts the start again), so a call with a non-zero `inputStart` reports a wrong, even negative, count. Every
+ * call here therefore passes its unread input at index 0 ([unread]). It also takes the address of element 0, which an
+ * empty array does not have, so no input left is a one-byte array with an end of 0.
+ */
 internal actual object ZstdCodec {
     private const val ZSTD_C_COMPRESSION_LEVEL = 100
 
@@ -18,13 +25,14 @@ internal actual object ZstdCodec {
             var remaining: Long
             do {
                 val chunk = ByteArray(chunkSize)
+                val pending = unread(input, inputOffset)
                 remaining = compressor.compressStream2(
                     outputByteArray = chunk,
                     outputEnd = chunk.size,
                     outputStart = 0,
-                    inputByteArray = input,
-                    inputEnd = input.size,
-                    inputStart = inputOffset,
+                    inputByteArray = pending,
+                    inputEnd = if (pending === NO_INPUT) 0 else pending.size,
+                    inputStart = 0,
                     mode = ZSTD_e_end,
                 )
                 checkZstd(remaining)
@@ -49,13 +57,14 @@ internal actual object ZstdCodec {
             do {
                 val room = (maxOutputSize - output.size).coerceAtMost(preferredChunkSize) + 1
                 val chunk = ByteArray(room)
+                val pending = unread(input, inputOffset)
                 remaining = decompressor.decompressStream(
                     outputByteArray = chunk,
                     outputEnd = chunk.size,
                     outputStart = 0,
-                    inputByteArray = input,
-                    inputEnd = input.size,
-                    inputStart = inputOffset,
+                    inputByteArray = pending,
+                    inputEnd = if (pending === NO_INPUT) 0 else pending.size,
+                    inputStart = 0,
                 )
                 checkZstd(remaining)
                 inputOffset += decompressor.inputBytesProcessed
@@ -71,6 +80,15 @@ internal actual object ZstdCodec {
             if (inputOffset != input.size) throw CompressionException("trailing bytes after zstd frame")
         }
         return output.toByteArray()
+    }
+
+    private val NO_INPUT = ByteArray(1)
+
+    /** [input] from [offset] on, at index 0: the array itself while nothing was consumed, else a copy, or [NO_INPUT]. */
+    private fun unread(input: ByteArray, offset: Int): ByteArray = when {
+        offset >= input.size -> NO_INPUT
+        offset == 0 -> input
+        else -> input.copyOfRange(offset, input.size)
     }
 
     private fun checkZstd(code: Long) {

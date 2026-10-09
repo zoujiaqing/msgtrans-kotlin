@@ -19,6 +19,19 @@ class PayloadCompressionTest {
     }
 
     @Test
+    fun incompressibleDataLargerThanAChunkRoundTrips() {
+        // The output outgrows one working chunk, so the codec calls the compressor again with its input consumed
+        // (zstd-kmp misreported the input consumed by such a call).
+        for (size in listOf(1100, 70_000, 300_000)) {
+            val noise = kotlin.random.Random(size).nextBytes(size)
+            for (compression in listOf(Compression.Zstd, Compression.Zlib)) {
+                val encoded = PayloadCompression.compress(noise, compression)
+                assertContentEquals(noise, PayloadCompression.decompress(encoded, compression), "$compression, $size bytes")
+            }
+        }
+    }
+
+    @Test
     fun inboundPacketIsNormalizedToPlaintext() {
         val original = Packet.request(repetitive, bizType = 7, messageId = 42u)
         val encoded = PayloadCompression.compress(original, Compression.Zstd)
