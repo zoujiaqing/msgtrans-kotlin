@@ -22,10 +22,12 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
 import msgtrans.core.ProtocolException
 import msgtrans.core.Packet
+import msgtrans.core.LengthPrefixedPacketCodec
 import msgtrans.core.PacketCodec
 import msgtrans.core.PacketType
 import msgtrans.core.Compression
 import msgtrans.core.PayloadCompression
+import neton.io.codec.Encoder
 import neton.io.core.Framed
 import neton.io.core.ClosedException
 import neton.io.core.Io
@@ -157,6 +159,8 @@ class Connection internal constructor(
     stream: IoStream,
     private val scope: CoroutineScope,
     private val config: ConnectionConfig = ConnectionConfig(),
+    /** How packets are delimited on [stream]; chosen by the transport ([ClientTransport.framing]). */
+    framing: Framing = Framing.Packets,
 ) {
     val writeMode: WriteMode get() = config.writeMode
     private val mailboxCapacity: Int get() = config.mailboxCapacity
@@ -172,9 +176,16 @@ class Connection internal constructor(
             ?: error("connection scope has no dispatcher")
 
     private val ownerInterceptor = owner[ContinuationInterceptor]
-    private val codec = PacketCodec(config.maxPayloadLength)
+    private val codec: Encoder<Packet>
     private val io = Io(stream)
-    private val framed = Framed(io, codec, codec)
+    private val framed: Framed<Packet, Packet>
+
+    init {
+        when (framing) {
+            Framing.Packets -> PacketCodec(config.maxPayloadLength).let { codec = it; framed = Framed(io, it, it) }
+            Framing.LengthPrefixed -> LengthPrefixedPacketCodec(config.maxPayloadLength).let { codec = it; framed = Framed(io, it, it) }
+        }
+    }
     private val outbound = Channel<Packet>(config.mailboxCapacity)
 
     // INLINE write mode state (reactor-thread only).

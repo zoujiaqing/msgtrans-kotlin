@@ -12,17 +12,31 @@ import neton.io.net.listen as netListen
  * send / request API over it. The transport produces the byte [IoStream] a [Connection] wraps;
  * the connection/session logic (framing, correlation, timeouts) is protocol-independent.
  *
- * TCP is implemented. WebSocket and QUIC are declared binding points — msgtrans-rust exposes
- * `TcpClientTransport` / `WebSocketClientTransport` / `QuicClientTransport` and the same
- * `client.send` / `client.request`; the Kotlin surface keeps that shape so business code does not
- * change when a protocol is added.
+ * TCP is implemented here; QUIC is `QuicClientTransport` / `QuicServerTransport` in the separate
+ * `com.netonstream:msgtrans-quic` artifact (it brings QUIC and OpenSSL); WebSocket is a declared binding
+ * point. msgtrans-rust exposes `TcpClientTransport` / `WebSocketClientTransport` / `QuicClientTransport`
+ * and the same `client.send` / `client.request`; the Kotlin surface keeps that shape so business code
+ * does not change when a protocol is added.
  */
+/**
+ * How packets are delimited on a transport's byte stream: as they are on TCP ([Packets], the packet header carries the
+ * lengths), or each preceded by its length as a u32 ([LengthPrefixed], msgtrans-rust's QUIC framing; see
+ * [msgtrans.core.LengthPrefixedPacketCodec]).
+ */
+enum class Framing { Packets, LengthPrefixed }
+
 interface ClientTransport {
     /** Open one client byte stream. */
     suspend fun open(): IoStream
+
+    /** How packets are delimited on the streams this transport opens. */
+    val framing: Framing get() = Framing.Packets
 }
 
 interface ServerTransport {
+    /** How packets are delimited on the streams this transport accepts. */
+    val framing: Framing get() = Framing.Packets
+
     /** Bind and start listening. */
     suspend fun listen(): Acceptor
 
@@ -83,10 +97,4 @@ class TcpServerTransport(private val host: String, private val port: Int) : Serv
 class WebSocketClientTransport(@Suppress("UNUSED_PARAMETER") url: String) : ClientTransport {
     override suspend fun open(): IoStream =
         throw NotImplementedError("WebSocket transport is not implemented yet (roadmap: neton-io WS codec)")
-}
-
-/** Declared binding point; not implemented yet. */
-class QuicClientTransport(@Suppress("UNUSED_PARAMETER") host: String, @Suppress("UNUSED_PARAMETER") port: Int) : ClientTransport {
-    override suspend fun open(): IoStream =
-        throw NotImplementedError("QUIC transport is not implemented yet")
 }

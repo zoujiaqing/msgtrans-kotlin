@@ -18,7 +18,7 @@ object Transport {
 
     /** Connect over [transport] and start the connection actor. */
     suspend fun connect(scope: CoroutineScope, transport: ClientTransport, config: ConnectionConfig = ConnectionConfig()): Connection =
-        Connection(transport.open(), scope, config).also { it.start() }
+        Connection(transport.open(), scope, config, transport.framing).also { it.start() }
 
     /** Convenience: connect over TCP. */
     suspend fun connect(scope: CoroutineScope, host: String, port: Int, config: ConnectionConfig = ConnectionConfig()): Connection =
@@ -39,7 +39,7 @@ object Transport {
         config: ConnectionConfig = ConnectionConfig(),
         reactors: Int = 1,
         onConnection: (Connection) -> Unit,
-    ): TransportServer = TransportServer(transport.listen(reactors), scope, config, onConnection)
+    ): TransportServer = TransportServer(transport.listen(reactors), scope, config, onConnection, transport.framing)
 
     /** Convenience: bind over TCP. */
     suspend fun bind(
@@ -58,6 +58,7 @@ class TransportServer internal constructor(
     private val scope: CoroutineScope,
     private val config: ConnectionConfig,
     private val onConnection: (Connection) -> Unit,
+    private val framing: Framing = Framing.Packets,
 ) {
     /** Number of reactors connections are spread over (SPEC §10). */
     val reactors: Int get() = (acceptor as? ServerTransport.SpreadingAcceptor)?.reactors ?: 1
@@ -87,7 +88,7 @@ class TransportServer internal constructor(
         // out the server (P1-4). A supervisor child's failure stays local.
         val connJob = SupervisorJob(scope.coroutineContext[Job])
         val connScope = CoroutineScope(dispatcherContext + connJob)
-        val conn = Connection(stream, connScope, config)
+        val conn = Connection(stream, connScope, config, framing)
         conn.onShutdown = { connScope.cancel() }
         try {
             onConnection(conn)
