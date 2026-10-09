@@ -162,20 +162,21 @@ id counter is per-session and refuses to wrap; a reconnect gets a fresh session.
 | Module | Contents | Targets | Published |
 |---|---|---|---|
 | `msgtrans` | package `msgtrans.core`: `Packet`, `PacketCodec`, zstd/zlib transforms, types and flags; package `msgtrans.transport`: `Connection` (actor), `Transport` client/server, `Message` | Apple + Linux (neton-io reactor) | `com.netonstream:msgtrans` |
+| `msgtrans-quic` | package `msgtrans.transport`: `QuicClientTransport`, `QuicServerTransport`, `QuicTransportOptions` (§16) | Apple + Linux (the targets msgtrans and `com.netonstream:quic` share) | `com.netonstream:msgtrans-quic` |
 | `msgtrans-bench` | the harness behind `bench/run.sh` | Apple + Linux | no |
 
 One artifact rather than core/transport: the codec has no consumer without the session (the Rust
 implementation is likewise one crate), and splitting before the first release would have fixed a
 coordinate nobody needs. Future modules layer on top of `msgtrans`: `msgtrans-rpc` (declarative
-`@MsgRpc` with KSP-generated stubs), `msgtrans-ws` (WebSocket transport), `msgtrans-quic`,
-`msgtrans-testkit` (cross-language conformance fixtures).
+`@MsgRpc` with KSP-generated stubs), `msgtrans-ws` (WebSocket transport),
+`msgtrans-testkit` (cross-language conformance fixtures). `msgtrans-quic` exists (§16).
 
 ---
 
 ## 6. Public API (v1)
 
 Multi-protocol binding follows msgtrans-rust: a `ClientTransport` / `ServerTransport` chooses the
-protocol (TCP now; `WebSocketClientTransport` / `QuicClientTransport` are declared binding points),
+protocol (TCP; QUIC in `msgtrans-quic`, §16; `WebSocketClientTransport` is a declared binding point),
 and the session API (`send`, `request`, `requestOrNull`, `onRequest`, `events`) is identical across
 protocols. `request` throws on timeout; `requestOrNull` returns null (mirrors the Rust
 `request(...).data: Option`). A `Connection` is callable from any thread (the call is posted to the
@@ -210,7 +211,7 @@ connection scope), `close`.
 |---|---|
 | v0 (done) | wire-exact codec; Connection session with the contracts; request/response (timeouts, in-flight cap), one-way events, server push; over TCP; suite verified on macOS (kqueue) and Linux (io_uring/epoll, 2026-09-13) |
 | v1 | request timeout (needs a reactor timer); the Diagnostic plane (send confirmations); connection registry / broadcast on the server |
-| v1.5 | WebSocket transport; ext-header / route tag (payload compression is complete) |
+| v1.5 | QUIC transport (done, §16); WebSocket transport; ext-header / route tag (payload compression is complete) |
 | v2 | declarative `@MsgRpc` + KSP-generated client stub / server dispatcher / route ids |
 | v2+ | cross-language conformance fixtures; multi-reactor (thread-per-core) once neton-io provides it |
 
@@ -547,3 +548,58 @@ msgtrans keeps `com.netonstream:msgtrans` and its `msgtrans.*` packages; from 0.
 **§15.1 done (2026-09-27)**: `ReactorQueue` closes itself and reports when a resume is refused; `MSGTRANS_REACTOR_RESUMER=0`
 switches the fast path off. `ReactorQueueRefusedTest` provokes the refusal (a receiver parked outside the reactor's scope, then
 the reactor stops). The full suite passes in both modes: macOS, and Linux io_uring / epoll, 44/44 each.
+
+---
+
+## 16. QUIC transport, interoperable with msgtrans-rust (2026-10-09)
+
+**Wire** (msgtrans-rust 2.0.0-beta.2, `src/adapters/quic.rs`), the contract:
+- TLS 1.3 with ALPN `msgtrans/1` set on both sides: a msgtrans endpoint completes a handshake only with another one.
+- One QUIC connection per session. The client opens one bidirectional stream (`open_bi`), the server accepts it
+  (`accept_bi`); QUIC makes a stream visible to the peer with its first data, so the server learns of a session when
+  the client first sends.
+- On that stream every packet (§2) is preceded by its length as a u32, big-endian (`[4-byte length] + [packet]`).
+  TCP carries packets without the prefix. A frame holds exactly one packet (`decode_exact_from`).
+- Closing: msgtrans-rust finishes the stream and drops the connection (quinn's implicit close, code 0).
+
+**Design.** The session (§3–§4) is protocol-independent and wraps an `IoStream`; the transport now also says how
+packets are delimited on it: `ClientTransport.framing` / `ServerTransport.framing` (`Framing.Packets` by default,
+`Framing.LengthPrefixed` for QUIC), and `Connection` picks `PacketCodec` or `LengthPrefixedPacketCodec` (in `msgtrans`,
+common code). The QUIC transports live in the separate `msgtrans-quic` artifact, because they bring
+`com.netonstream:quic` and OpenSSL (the declared `QuicClientTransport` stub was removed from `msgtrans`).
+- `QuicClientTransport(host, port, trustAnchors, serverName = host, options)`: resolves the host with neton-io's
+  `lookupHost` (io SPEC §35) and tries its addresses staggered by 250 ms (Happy Eyeballs, RFC 8305 §5), each on its
+  own client endpoint (msgtrans-rust makes an `Endpoint::client` per connect); the first handshake to complete wins,
+  the others are closed. Over UDP an address nobody listens on does not refuse — without the stagger, `localhost`
+  resolving to `::1` first held every connection to an IPv4-only server for the whole 10 s connect timeout. The
+  stream's `close` also closes the connection and its endpoint.
+- `QuicServerTransport(host, port, certificateChain, privateKey, options)`: one server endpoint; each handshake and
+  its `acceptBi` run in their own coroutine beside the accept loop, so a slow or silent client holds up nobody, and
+  ready sessions go to `accept()`. Closing the acceptor stops accepting (quinn: dropping the endpoint handle); sessions
+  already handed out carry on.
+- `QuicTransportOptions`: msgtrans-rust's defaults — 30 s idle timeout, 15 s keep-alive, 10 s connect timeout.
+- Verification: the server is always verified, against given trust anchors or `Certificates.system()`;
+  `dangerousNoServerVerificationForTestsOnly` mirrors msgtrans-rust's `danger_skip_verification` for throwaway
+  certificates. Not mirrored yet: SPKI pinning (needs a verification hook in `com.netonstream:quic`) and the server's
+  self-signed fallback (msgtrans-rust generates one with rcgen when no certificate is given).
+- Decoding is strict: a frame shorter than a packet header, or whose packet does not fill it exactly, or longer than
+  the largest packet `maxPayloadLength` allows (rejected from the prefix, before buffering), is a `ProtocolException`
+  that closes only that session. msgtrans-rust's default lenient policy instead delivers such a frame as a OneWay
+  with the raw bytes; a msgtrans peer never sends one.
+
+**Verification** (macOS arm64, 2026-10-09; CI runs the same on Linux with epoll and io_uring):
+- `LengthPrefixedPacketCodecTest` (exact bytes, round trip, partial frames, limits, mismatched lengths) on native and
+  JVM; `QuicTransportTest` (request/response and push, 0 B–3 MB and compressed payloads, 4 sessions × 50 concurrent
+  requests, `localhost` to an IPv4-only server, an untrusted server refused, the server observing the client's close).
+- Interop with msgtrans-rust 2.0.0-beta.2 (`interop/run-quic-interop.sh`, peer in `interop/rust-peer` from
+  crates.io): Kotlin client → Rust server and Rust client → Kotlin server, each running the same checklist — request
+  echo at 0, 1, 1200, 70,000, 1,000,000 and 3,000,000 bytes, zstd and zlib, 64 concurrent requests, a one-way echoed
+  as a one-way with its biz_type, and a request that makes the server send a request to the client (answered by the
+  client's handler) — all passed; a client trusting another CA is refused in both directions (Rust: `UnknownIssuer`;
+  Kotlin: `certificate verify failed`), and the Kotlin server keeps serving afterwards.
+- Found while running it: a Rust client that exits right after `disconnect()` may never send its CONNECTION_CLOSE
+  (quinn sends it from the endpoint driver, and msgtrans-rust's write task does not finish the stream while parked in
+  `recv_many`), so the server learns of the end only from its idle timeout (30 s) — correct QUIC behaviour; the peer
+  waits 300 ms before exiting, and the script waits past the idle timeout.
+- Release: `msgtrans-quic` needs neton-io's `lookupHost`, so it ships with (or after) the io release that has it.
+

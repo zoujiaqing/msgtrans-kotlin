@@ -24,7 +24,8 @@ allprojects {
 // must compile with the same Kotlin version as the publisher.
 val unpublished = setOf("msgtrans-bench")
 val pomDescriptions = mapOf(
-    "msgtrans" to "msgtrans for Kotlin/Native - the msgtrans wire protocol (Packet codec, zstd/zlib payload compression) and a request/response, one-way and server-push session over TCP on the neton-io reactor; wire-compatible with the Rust and TypeScript implementations"
+    "msgtrans" to "msgtrans for Kotlin/Native - the msgtrans wire protocol (Packet codec, zstd/zlib payload compression) and a request/response, one-way and server-push session over TCP on the neton-io reactor; wire-compatible with the Rust and TypeScript implementations",
+    "msgtrans-quic" to "msgtrans over QUIC for Kotlin/Native - QuicClientTransport / QuicServerTransport on com.netonstream:quic, wire-compatible with msgtrans-rust's QUIC transport (ALPN msgtrans/1)",
 )
 
 subprojects {

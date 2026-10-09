@@ -6,4 +6,6 @@ rootProject.name = "msgtrans-kotlin"
 // checkout exists) so both compile with one Kotlin/Native toolchain; its coordinates match the published
 // artifacts, so without the sibling (CI) the build resolves them from Maven Central instead.
 if (file("../io").isDirectory) includeBuild("../io")
-include(":msgtrans", ":msgtrans-bench")
+// msgtrans-quic's QUIC, likewise from the sibling checkout where it exists.
+if (file("../quic").isDirectory) includeBuild("../quic")
+include(":msgtrans", ":msgtrans-quic", ":msgtrans-bench")

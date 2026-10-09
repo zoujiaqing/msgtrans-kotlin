@@ -63,11 +63,14 @@ One published artifact, `com.netonstream:msgtrans`, the way the Rust crate is on
 - package `msgtrans.core` — `Packet`, `PacketCodec` (wire-exact, big-endian), zstd/zlib payload
   codecs, types.
 - package `msgtrans.transport` — the `Connection` session, `Transport` client/server, the
-  `ClientTransport`/`ServerTransport` protocol seam (TCP; WebSocket/QUIC declared). Runs on the
+  `ClientTransport`/`ServerTransport` protocol seam (TCP; WebSocket declared). Runs on the
   neton-io reactor.
 
-Additional protocols (`msgtrans-ws`, `msgtrans-quic`) and the RPC layer are add-on modules that
-depend on `msgtrans`; nothing needs the codec without the session, so the two are not split.
+`com.netonstream:msgtrans-quic` (Apple and Linux) adds QUIC: `QuicClientTransport` /
+`QuicServerTransport` on `com.netonstream:quic`, wire-compatible with msgtrans-rust's QUIC transport
+(see [QUIC](#quic)). It is a separate artifact because it brings QUIC and OpenSSL, which TCP users and
+the JVM / Android artifact do not need. Further protocols (`msgtrans-ws`) and the RPC layer are add-on
+modules too; nothing needs the codec without the session, so those two are not split.
 `msgtrans-bench` (the harness behind `bench/run.sh`) is not published.
 
 ```kotlin
@@ -80,8 +83,8 @@ klibs, and klib binary compatibility is bound to the compiler version.
 ## Usage
 
 The API mirrors the Rust msgtrans surface: pick a transport, then use the same `send` / `request`
-over it. TCP is implemented; WebSocket and QUIC are declared binding points (`WebSocketClientTransport`,
-`QuicClientTransport`) so business code will not change when they land.
+over it. TCP and QUIC (`msgtrans-quic`) are implemented; WebSocket is a declared binding point
+(`WebSocketClientTransport`) so business code will not change when it lands.
 
 ```kotlin
 runReactor {
@@ -111,10 +114,45 @@ runReactor {
 conveniences. `Connection` is callable from any thread — a call off the owning reactor is posted to
 it — so a connection reference can be shared with worker threads safely.
 
+### QUIC
+
+```kotlin
+dependencies { implementation("com.netonstream:msgtrans-quic:<version>") }
+
+runReactor {
+    val serverTransport = QuicServerTransport("0.0.0.0", 9443, Certificates.pem(certPem), PrivateKey.pem(keyPem))
+    val server = Transport.bind(this, serverTransport) { conn -> conn.onRequest { payload, _ -> payload } }
+    launch { server.acceptLoop() }
+
+    val client = QuicClientTransport("example.com", 9443, Certificates.system())   // or the server's CA
+    val conn = Transport.connect(this, client)
+    conn.request("ping".encodeToByteArray())
+}
+```
+
+The wire is msgtrans-rust's (`QuicAdapter`): TLS 1.3 with ALPN `msgtrans/1` on both sides, one QUIC
+connection per session, the client opens one bidirectional stream, and every packet on it is
+preceded by its length as a u32, big-endian (`Framing.LengthPrefixed`, `LengthPrefixedPacketCodec`).
+Defaults follow msgtrans-rust: 30 s idle timeout, 15 s keep-alive, 10 s connect timeout
+(`QuicTransportOptions`). The server is always verified (trust anchors, or `Certificates.system()`);
+`QuicClientTransport.dangerousNoServerVerificationForTestsOnly` exists for tests against throwaway
+certificates, like msgtrans-rust's `danger_skip_verification`. A host name is resolved and its
+addresses tried staggered (RFC 8305), so `localhost` reaching an IPv4-only server does not wait out
+the connect timeout on `::1`. As in msgtrans-rust, the server learns of a session when the client
+first sends on it.
+
+Interop with msgtrans-rust 2.0.0-beta.2 is verified both ways (`interop/run-quic-interop.sh` with
+`interop/rust-peer`, in CI on Linux with epoll and io_uring): requests of 0 B to 3 MB, zstd and zlib,
+64 concurrent requests, one-way echo, a server-initiated request answered by the client, and the
+refusal of a server certificate from another CA in each direction.
+
 ## Build and test
 
 ```bash
 ./gradlew :msgtrans:macosArm64Test              # codec + request/response over real TCP
+./gradlew :msgtrans-quic:macosArm64Test         # the session over QUIC
+(cd interop/rust-peer && cargo build --release) && (cd interop && ./gen-certs.sh) && \
+  interop/run-quic-interop.sh msgtrans-quic/build/bin/macosArm64/debugTest/test.kexe interop/rust-peer/target/release/peer
 ./gradlew :msgtrans:linkDebugTestLinuxX64       # cross-compile for Linux
 ./gradlew :msgtrans:linkDebugTestAndroidNativeArm64
 adb push msgtrans/build/bin/androidNativeArm64/debugTest/test.kexe /data/local/tmp/
@@ -147,7 +185,7 @@ mode=rpc port=8001` receives the correct echoed responses. This exercises encode
 languages. Reproduce with `scripts/interop-rust.sh` (builds the Rust echo
 example and both Kotlin bench binaries, runs both directions, asserts 0 errors). Still open: a shared **fixture-based** conformance suite (the Rust repo has
 `wire_format_fixtures`; running the same vectors in a Kotlin test is the remaining gate), and TS
-interop. API/toolchain boundary above covers the supported range (TCP; WebSocket/QUIC declared,
+interop. API/toolchain boundary above covers the supported range (TCP and QUIC; WebSocket declared,
 unimplemented).
 
 Compression interoperability is verified in both directions against msgtrans-rust with `flate2`
