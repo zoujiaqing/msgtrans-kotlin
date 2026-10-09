@@ -1,7 +1,7 @@
 # msgtrans-kotlin
 
 A Kotlin/Native implementation of the [msgtrans](https://github.com/zoujiaqing/msgtrans) wire
-protocol and transport, built on the [neton-io](../neton-io) reactor.
+protocol and transport, built on the [neton-io](../io) reactor.
 
 It is the language mapping of the msgtrans Rust surface and the TypeScript client: same Packet
 semantics, same request/response correlation, same wire bytes. The wire format is the single

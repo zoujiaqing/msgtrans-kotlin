@@ -39,7 +39,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-NETON="$ROOT/../neton-io"
+NETON="$ROOT/../io"
 cd "$ROOT"
 
 case "$(uname -s)-$(uname -m)" in

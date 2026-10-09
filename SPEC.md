@@ -1,7 +1,7 @@
 # msgtrans-kotlin — SPEC
 
 > Kotlin/Native implementation of the [msgtrans](https://github.com/zoujiaqing/msgtrans) wire
-> protocol and transport, on the [neton-io](../neton-io) reactor. Per-connection **actor**,
+> protocol and transport, on the [neton-io](../io) reactor. Per-connection **actor**,
 > **lock-free**, wire-compatible with the Rust and TypeScript implementations.
 >
 > Status: draft. The wire is stable and testable; the transport is P0.
