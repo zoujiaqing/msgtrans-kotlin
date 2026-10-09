@@ -74,11 +74,16 @@ modules too; nothing needs the codec without the session, so those two are not s
 `msgtrans-bench` (the harness behind `bench/run.sh`) is not published.
 
 ```kotlin
-dependencies { implementation("com.netonstream:msgtrans:0.2.0") }
+dependencies { implementation("com.netonstream:msgtrans:0.3.0") }
 ```
 
-Consumers must compile with the same Kotlin version as the release (2.4.20 from the next release on): the artifacts are
-klibs, and klib binary compatibility is bound to the compiler version.
+Consumers must compile with the same Kotlin version as the release (2.4.20 from 0.3.0 on; 0.2.0 was built with 2.4.0):
+the artifacts are klibs, and klib binary compatibility is bound to the compiler version.
+
+**0.3.0** (2026-10-09), with **msgtrans-quic 0.1.0**: QUIC, interoperable with msgtrans-rust ([QUIC](#quic)); a
+transport declares how packets are delimited on its stream (`Framing`, `LengthPrefixedPacketCodec`), and the declared
+`QuicClientTransport` stub left this artifact; zstd compression of incompressible payloads larger than about 1 KB
+failed in 0.2.0 (zstd-kmp misreports the input consumed when a call starts past index 0) and works now; io 0.3.3.
 
 ## Usage
 
@@ -117,7 +122,7 @@ it — so a connection reference can be shared with worker threads safely.
 ### QUIC
 
 ```kotlin
-dependencies { implementation("com.netonstream:msgtrans-quic:<version>") }
+dependencies { implementation("com.netonstream:msgtrans-quic:0.1.0") }
 
 runReactor {
     val serverTransport = QuicServerTransport("0.0.0.0", 9443, Certificates.pem(certPem), PrivateKey.pem(keyPem))

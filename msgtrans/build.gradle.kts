@@ -56,7 +56,7 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
-            api("com.netonstream:io:0.2.0")
+            api("com.netonstream:io:0.3.3")
             api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
         }
         getByName("zstdKmpMain").dependencies {
