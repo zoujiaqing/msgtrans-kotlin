@@ -6,3 +6,9 @@ build/
 *.hprof
 local.properties
 .kotlin/
+
+# QUIC interop runs (interop/run-quic-interop.sh)
+interop/certs/
+interop/logs/
+interop/summary.txt
+interop/rust-peer/target/

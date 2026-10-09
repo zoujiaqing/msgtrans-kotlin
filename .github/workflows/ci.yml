@@ -1,7 +1,9 @@
 name: CI
 
-# The tests on macOS (kqueue, and JVM) and Linux x64 (epoll, io_uring, poll, and JVM). io comes from Maven Central
-# (settings.gradle.kts includes the sibling checkout only where it exists). msgtrans has no Windows target.
+# The tests on macOS (kqueue, and JVM) and Linux x64 (epoll, io_uring, poll, and JVM), msgtrans-quic's included, and
+# QUIC interop with msgtrans-rust on Linux. msgtrans has no Windows target. quic comes from Maven Central; io is cloned
+# beside the repository (settings.gradle.kts includes a sibling checkout where it exists) until a release has
+# lookupHost, which msgtrans-quic needs.
 on:
   push:
   pull_request:
@@ -14,16 +16,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: macOS kqueue, os: macos-14, tasks: ":msgtrans:macosArm64Test :msgtrans:jvmTest", driver: "" }
-          - { name: Linux epoll, os: ubuntu-latest, tasks: ":msgtrans:linuxX64Test :msgtrans:jvmTest", driver: epoll }
-          - { name: Linux io_uring, os: ubuntu-latest, tasks: ":msgtrans:linuxX64Test", driver: iouring }
-          - { name: Linux poll, os: ubuntu-latest, tasks: ":msgtrans:linuxX64Test", driver: poll }
+          - { name: macOS kqueue, os: macos-14, tasks: ":msgtrans:macosArm64Test :msgtrans-quic:macosArm64Test :msgtrans:jvmTest", driver: "" }
+          - { name: Linux epoll, os: ubuntu-latest, tasks: ":msgtrans:linuxX64Test :msgtrans-quic:linuxX64Test :msgtrans:jvmTest", driver: epoll }
+          - { name: Linux io_uring, os: ubuntu-latest, tasks: ":msgtrans:linuxX64Test :msgtrans-quic:linuxX64Test", driver: iouring }
+          - { name: Linux poll, os: ubuntu-latest, tasks: ":msgtrans:linuxX64Test :msgtrans-quic:linuxX64Test", driver: poll }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
       NETON_IO_DRIVER: ${{ matrix.driver }}
     steps:
       - uses: actions/checkout@v4
+      - name: io beside the repository (lookupHost is not on Maven Central yet)
+        shell: bash
+        run: git clone -q --depth 1 https://github.com/netonframework/io.git ../io
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -59,4 +64,62 @@ jobs:
           path: |
             */build/test-results/**
             */build/reports/tests/**
+          if-no-files-found: ignore
+
+  quic-interop:
+    # msgtrans-kotlin over QUIC against msgtrans-rust 2.0.0-beta.2 (interop/rust-peer), both directions, plus the
+    # rejection cases (interop/run-quic-interop.sh). Fails on any unexpected result.
+    name: QUIC interop with msgtrans-rust (${{ matrix.driver }})
+    strategy:
+      fail-fast: false
+      matrix:
+        driver: [epoll, iouring]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      NETON_IO_DRIVER: ${{ matrix.driver }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: io beside the repository (lookupHost is not on Maven Central yet)
+        run: git clone -q --depth 1 https://github.com/netonframework/io.git ../io
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Cache Kotlin/Native toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle/libs.versions.toml') }}
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            interop/rust-peer/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('interop/rust-peer/Cargo.lock', 'interop/rust-peer/src/**') }}
+      - name: Build the Rust peer
+        working-directory: interop/rust-peer
+        run: cargo build --release --locked
+      - name: Link the Kotlin test binary
+        run: ./gradlew :msgtrans-quic:linkDebugTestLinuxX64 --no-daemon --stacktrace
+      - name: Run the interop
+        working-directory: interop
+        run: |
+          ./gen-certs.sh > /dev/null
+          ./run-quic-interop.sh "$GITHUB_WORKSPACE/msgtrans-quic/build/bin/linuxX64/debugTest/test.kexe" "$GITHUB_WORKSPACE/interop/rust-peer/target/release/peer" | tee summary.txt
+          exit ${PIPESTATUS[0]}
+      - name: Summary
+        if: always()
+        run: |
+          { echo "### QUIC interop with msgtrans-rust (${{ matrix.driver }})"; echo '```'; grep '^== \|\[interop\] ok\|\[interop\] FAIL' interop/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quic-interop-${{ matrix.driver }}
+          path: |
+            interop/logs/**
+            interop/summary.txt
           if-no-files-found: ignore
