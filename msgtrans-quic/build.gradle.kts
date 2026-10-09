@@ -2,7 +2,7 @@ plugins { kotlin("multiplatform") }
 repositories { mavenCentral() }
 
 // Its own version line, starting at 0.1.0 (the root sets msgtrans's).
-version = "0.1.0"
+version = "0.1.1"
 
 // msgtrans over QUIC: a separate artifact because it brings com.netonstream:quic and OpenSSL, which TCP users (and the
 // JVM / Android artifact) do not need. The targets msgtrans and quic both provide.

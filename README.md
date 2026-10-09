@@ -75,11 +75,15 @@ module too; nothing needs the codec without the session, so those two are not sp
 `msgtrans-bench` (the harness behind `bench/run.sh`) is not published.
 
 ```kotlin
-dependencies { implementation("com.netonstream:msgtrans:0.3.0") }
+dependencies { implementation("com.netonstream:msgtrans:0.4.0") }
 ```
 
 Consumers must compile with the same Kotlin version as the release (2.4.20 from 0.3.0 on; 0.2.0 was built with 2.4.0):
 the artifacts are klibs, and klib binary compatibility is bound to the compiler version.
+
+**0.4.0** (2026-10-10), with **msgtrans-websocket 0.1.0** and **msgtrans-quic 0.1.1**: WebSocket, interoperable with
+msgtrans-rust ([WebSocket](#websocket)); the declared `WebSocketClientTransport` stub left this artifact.
+msgtrans-quic 0.1.1 is 0.1.0 on msgtrans 0.4.0.
 
 **0.3.0** (2026-10-09), with **msgtrans-quic 0.1.0**: QUIC, interoperable with msgtrans-rust ([QUIC](#quic)); a
 transport declares how packets are delimited on its stream (`Framing`, `LengthPrefixedPacketCodec`), and the declared
@@ -123,7 +127,7 @@ it — so a connection reference can be shared with worker threads safely.
 ### QUIC
 
 ```kotlin
-dependencies { implementation("com.netonstream:msgtrans-quic:0.1.0") }
+dependencies { implementation("com.netonstream:msgtrans-quic:0.1.1") }
 
 runReactor {
     val serverTransport = QuicServerTransport("0.0.0.0", 9443, Certificates.pem(certPem), PrivateKey.pem(keyPem))
