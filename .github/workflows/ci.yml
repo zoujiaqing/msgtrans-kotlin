@@ -1,9 +1,9 @@
 name: CI
 
-# The tests on macOS (kqueue, and JVM) and Linux x64 (epoll, io_uring, poll, and JVM), msgtrans-quic's included, and
-# QUIC interop with msgtrans-rust on Linux. msgtrans has no Windows target. quic comes from Maven Central; io is cloned
-# beside the repository (settings.gradle.kts includes a sibling checkout where it exists) until a release has
-# lookupHost, which msgtrans-quic needs.
+# The tests on macOS (kqueue, and JVM) and Linux x64 (epoll, io_uring, poll, and JVM), msgtrans-quic's and
+# msgtrans-websocket's included, and QUIC and WebSocket interop with msgtrans-rust on Linux. msgtrans has no Windows
+# target. io, quic and websocket come from Maven Central (settings.gradle.kts includes sibling checkouts only where they
+# exist).
 on:
   push:
   pull_request:
@@ -16,19 +16,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: macOS kqueue, os: macos-14, tasks: ":msgtrans:macosArm64Test :msgtrans-quic:macosArm64Test :msgtrans:jvmTest", driver: "" }
-          - { name: Linux epoll, os: ubuntu-latest, tasks: ":msgtrans:linuxX64Test :msgtrans-quic:linuxX64Test :msgtrans:jvmTest", driver: epoll }
-          - { name: Linux io_uring, os: ubuntu-latest, tasks: ":msgtrans:linuxX64Test :msgtrans-quic:linuxX64Test", driver: iouring }
-          - { name: Linux poll, os: ubuntu-latest, tasks: ":msgtrans:linuxX64Test :msgtrans-quic:linuxX64Test", driver: poll }
+          - { name: macOS kqueue, os: macos-14, tasks: ":msgtrans:macosArm64Test :msgtrans-quic:macosArm64Test :msgtrans-websocket:macosArm64Test :msgtrans:jvmTest", driver: "" }
+          - { name: Linux epoll, os: ubuntu-latest, tasks: ":msgtrans:linuxX64Test :msgtrans-quic:linuxX64Test :msgtrans-websocket:linuxX64Test :msgtrans:jvmTest", driver: epoll }
+          - { name: Linux io_uring, os: ubuntu-latest, tasks: ":msgtrans:linuxX64Test :msgtrans-quic:linuxX64Test :msgtrans-websocket:linuxX64Test", driver: iouring }
+          - { name: Linux poll, os: ubuntu-latest, tasks: ":msgtrans:linuxX64Test :msgtrans-quic:linuxX64Test :msgtrans-websocket:linuxX64Test", driver: poll }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
       NETON_IO_DRIVER: ${{ matrix.driver }}
     steps:
       - uses: actions/checkout@v4
-      - name: io beside the repository (lookupHost is not on Maven Central yet)
-        shell: bash
-        run: git clone -q --depth 1 https://github.com/netonframework/io.git ../io
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -66,10 +63,11 @@ jobs:
             */build/reports/tests/**
           if-no-files-found: ignore
 
-  quic-interop:
-    # msgtrans-kotlin over QUIC against msgtrans-rust 2.0.0-beta.2 (interop/rust-peer), both directions, plus the
-    # rejection cases (interop/run-quic-interop.sh). Fails on any unexpected result.
-    name: QUIC interop with msgtrans-rust (${{ matrix.driver }})
+  interop:
+    # msgtrans-kotlin over QUIC and over WebSocket (ws and wss) against msgtrans-rust 2.0.0-beta.2 (interop/rust-peer),
+    # both directions, plus the rejection cases (interop/run-quic-interop.sh, interop/run-websocket-interop.sh). Fails on
+    # any unexpected result.
+    name: interop with msgtrans-rust (${{ matrix.driver }})
     strategy:
       fail-fast: false
       matrix:
@@ -80,8 +78,6 @@ jobs:
       NETON_IO_DRIVER: ${{ matrix.driver }}
     steps:
       - uses: actions/checkout@v4
-      - name: io beside the repository (lookupHost is not on Maven Central yet)
-        run: git clone -q --depth 1 https://github.com/netonframework/io.git ../io
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -103,22 +99,26 @@ jobs:
       - name: Build the Rust peer
         working-directory: interop/rust-peer
         run: cargo build --release --locked
-      - name: Link the Kotlin test binary
-        run: ./gradlew :msgtrans-quic:linkDebugTestLinuxX64 --no-daemon --stacktrace
+      - name: Link the Kotlin test binaries
+        run: ./gradlew :msgtrans-quic:linkDebugTestLinuxX64 :msgtrans-websocket:linkDebugTestLinuxX64 --no-daemon --stacktrace
       - name: Run the interop
         working-directory: interop
         run: |
           ./gen-certs.sh > /dev/null
-          ./run-quic-interop.sh "$GITHUB_WORKSPACE/msgtrans-quic/build/bin/linuxX64/debugTest/test.kexe" "$GITHUB_WORKSPACE/interop/rust-peer/target/release/peer" | tee summary.txt
-          exit ${PIPESTATUS[0]}
+          PEER="$GITHUB_WORKSPACE/interop/rust-peer/target/release/peer"
+          ./run-quic-interop.sh "$GITHUB_WORKSPACE/msgtrans-quic/build/bin/linuxX64/debugTest/test.kexe" "$PEER" | tee summary.txt
+          QUIC=${PIPESTATUS[0]}
+          ./run-websocket-interop.sh "$GITHUB_WORKSPACE/msgtrans-websocket/build/bin/linuxX64/debugTest/test.kexe" "$PEER" | tee -a summary.txt
+          WS=${PIPESTATUS[0]}
+          [ "$QUIC" = 0 ] && [ "$WS" = 0 ]
       - name: Summary
         if: always()
         run: |
-          { echo "### QUIC interop with msgtrans-rust (${{ matrix.driver }})"; echo '```'; grep '^== \|\[interop\] ok\|\[interop\] FAIL' interop/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### interop with msgtrans-rust (${{ matrix.driver }})"; echo '```'; grep '^== \|\[interop\] ok\|\[interop\] FAIL' interop/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: quic-interop-${{ matrix.driver }}
+          name: interop-${{ matrix.driver }}
           path: |
             interop/logs/**
             interop/summary.txt

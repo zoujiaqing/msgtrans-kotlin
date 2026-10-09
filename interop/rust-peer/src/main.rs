@@ -1,7 +1,9 @@
-//! msgtrans-rust QUIC peer for the Kotlin interop runs (see ../run-quic-interop.sh and msgtrans-quic's InteropTest).
+//! msgtrans-rust QUIC and WebSocket peer for the Kotlin interop runs (see ../run-quic-interop.sh, ../run-websocket-interop.sh).
 //!
-//!   peer server <addr> <cert.pem> <key.pem> <sessions>   serve <sessions> sessions, then exit
-//!   peer client <addr> <server-name> <ca.pem>           run the checklist against a server, exit 0 if all pass
+//!   peer server <addr> <cert.pem> <key.pem> <sessions>   QUIC: serve <sessions> sessions, then exit
+//!   peer client <addr> <server-name> <ca.pem>           QUIC: run the checklist against a server, exit 0 if all pass
+//!   peer ws-server <addr> <sessions>                    WebSocket (ws://, path /): serve <sessions> sessions
+//!   peer ws-client <url> [ca.pem]                       WebSocket: the checklist; wss:// trusts ca.pem
 //!
 //! The scenario both implementations follow:
 //! - a Request is answered with its payload (any biz_type but 200);
@@ -13,9 +15,9 @@
 use async_trait::async_trait;
 use bytes::Bytes;
 use msgtrans::{
-    ClientEvent, CompressionType, ConnectionInfo, Packet, QuicClientConfig, QuicServerConfig, RequestOptions, Responder,
-    SendOptions, SessionHandler, SessionId, SessionSender, TransportClientBuilder, TransportServer,
-    TransportServerBuilder,
+    ClientEvent, ClientTls, CompressionType, ConnectionInfo, Packet, QuicClientConfig, QuicServerConfig, RequestOptions,
+    Responder, SendOptions, SessionHandler, SessionId, SessionSender, TransportClientBuilder, TransportServer,
+    TransportServerBuilder, WebSocketClientConfig, WebSocketServerConfig,
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
@@ -73,12 +75,22 @@ impl SessionHandler for Server {
     }
 }
 
-async fn server(addr: &str, cert: &str, key: &str, sessions: usize) -> Result<(), Box<dyn std::error::Error>> {
+type Error = Box<dyn std::error::Error>;
+
+async fn quic_server(addr: &str, cert: &str, key: &str, sessions: usize) -> Result<(), Error> {
     let config = QuicServerConfig::new(addr)?
         .cert_pem(std::fs::read_to_string(cert)?)
         .key_pem(std::fs::read_to_string(key)?);
+    server(TransportServerBuilder::new().protocol(config), addr, sessions).await
+}
+
+async fn ws_server(addr: &str, sessions: usize) -> Result<(), Error> {
+    server(TransportServerBuilder::new().protocol(WebSocketServerConfig::new(addr)?), addr, sessions).await
+}
+
+async fn server(builder: TransportServerBuilder, addr: &str, sessions: usize) -> Result<(), Error> {
     let handler = Arc::new(Server { handle: OnceLock::new(), closed: AtomicUsize::new(0), sessions, done: Notify::new() });
-    let transport = TransportServerBuilder::new().protocol(config).build(handler.clone()).await?;
+    let transport = builder.build(handler.clone()).await?;
     let _ = handler.handle.set(transport.clone());
     let serving = tokio::spawn(async move { transport.serve().await });
     println!("[interop] rust server: listening on {addr}");
@@ -88,12 +100,24 @@ async fn server(addr: &str, cert: &str, key: &str, sessions: usize) -> Result<()
     Ok(())
 }
 
-async fn client(addr: &str, server_name: &str, ca: &str) -> Result<(), Box<dyn std::error::Error>> {
+async fn quic_client(addr: &str, server_name: &str, ca: &str) -> Result<(), Error> {
     let config = QuicClientConfig::new(addr)?
         .server_name(server_name)
         .ca_cert_pem(std::fs::read_to_string(ca)?)
         .connect_timeout(Duration::from_secs(10));
-    let mut transport = TransportClientBuilder::new().protocol(config).build().await?;
+    client(TransportClientBuilder::new().protocol(config), addr).await
+}
+
+async fn ws_client(url: &str, ca: Option<&str>) -> Result<(), Error> {
+    let mut config = WebSocketClientConfig::new(url)?.connect_timeout(Duration::from_secs(10));
+    if let Some(ca) = ca {
+        config = config.tls(ClientTls::CustomCa(std::fs::read_to_string(ca)?));
+    }
+    client(TransportClientBuilder::new().protocol(config), url).await
+}
+
+async fn client(builder: TransportClientBuilder, addr: &str) -> Result<(), Error> {
+    let mut transport = builder.build().await?;
     if let Err(e) = transport.connect().await {
         println!("[interop] rust client: connect failed: {e:?}");
         return Err(e.into());
@@ -126,7 +150,7 @@ async fn client(addr: &str, server_name: &str, ca: &str) -> Result<(), Box<dyn s
         let reply = transport.request_with_options(Bytes::from(payload.clone()), RequestOptions::new().biz_type(1)).await;
         check(matches!(&reply, Ok(r) if r[..] == payload[..]), format!("request echo, {size} bytes"));
     }
-    let text = "msgtrans over QUIC ".repeat(5000).into_bytes();
+    let text = "msgtrans interop ".repeat(5000).into_bytes();
     for compression in [CompressionType::Zstd, CompressionType::Zlib] {
         let reply = transport
             .request_with_options(Bytes::from(text.clone()), RequestOptions::new().biz_type(2).compression(compression))
@@ -176,11 +200,13 @@ async fn main() {
     let args: Vec<String> = std::env::args().collect();
     let result = match args.get(1).map(String::as_str) {
         Some("server") if args.len() == 6 => {
-            server(&args[2], &args[3], &args[4], args[5].parse().expect("sessions")).await
+            quic_server(&args[2], &args[3], &args[4], args[5].parse().expect("sessions")).await
         }
-        Some("client") if args.len() == 5 => client(&args[2], &args[3], &args[4]).await,
+        Some("client") if args.len() == 5 => quic_client(&args[2], &args[3], &args[4]).await,
+        Some("ws-server") if args.len() == 4 => ws_server(&args[2], args[3].parse().expect("sessions")).await,
+        Some("ws-client") if args.len() == 3 || args.len() == 4 => ws_client(&args[2], args.get(3).map(String::as_str)).await,
         _ => {
-            eprintln!("usage: peer server <addr> <cert.pem> <key.pem> <sessions> | peer client <addr> <server-name> <ca.pem>");
+            eprintln!("usage: see the header of main.rs");
             std::process::exit(2);
         }
     };

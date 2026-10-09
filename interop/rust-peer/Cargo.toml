@@ -3,10 +3,10 @@ name = "msgtrans-rust-peer"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "msgtrans-rust QUIC peer for the Kotlin interop runs (interop/run-quic-interop.sh)"
+description = "msgtrans-rust QUIC and WebSocket peer for the Kotlin interop runs (interop/run-*-interop.sh)"
 
 [dependencies]
-msgtrans = { version = "=2.0.0-beta.2", default-features = false, features = ["quic", "zstd", "flate2"] }
+msgtrans = { version = "=2.0.0-beta.2", default-features = false, features = ["quic", "websocket", "zstd", "flate2"] }
 tokio = { version = "1", features = ["full"] }
 async-trait = "0.1"
 bytes = "1"
