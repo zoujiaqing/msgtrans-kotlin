@@ -186,7 +186,7 @@ class WebSocketServerTransport(
  *   one binary message, however the bytes were split across writes;
  * - reading: each binary message must be exactly one packet (msgtrans-rust `decode_exact_from`) and is handed on as its
  *   bytes; a text message, or a binary one that is not exactly one packet, is a [ProtocolException] (msgtrans-rust's
- *   strict policy; its default lenient one wraps such a message as a OneWay — a msgtrans peer never sends one);
+ *   default `FramePolicy::Strict`; its opt-in `Lenient` policy wraps such a message as a OneWay);
  * - pings are answered by the WebSocket; with [WebSocketTransportOptions.pingInterval] this side pings too, and a ping
  *   not answered within [WebSocketTransportOptions.pongTimeout] ends the session (msgtrans-rust's keepalive);
  * - [close] sends a Close frame (normal closure), then closes the connection.

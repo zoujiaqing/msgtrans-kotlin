@@ -585,8 +585,12 @@ common code). The QUIC transports live in the separate `msgtrans-quic` artifact,
   self-signed fallback (msgtrans-rust generates one with rcgen when no certificate is given).
 - Decoding is strict: a frame shorter than a packet header, or whose packet does not fill it exactly, or longer than
   the largest packet `maxPayloadLength` allows (rejected from the prefix, before buffering), is a `ProtocolException`
-  that closes only that session. msgtrans-rust's default lenient policy instead delivers such a frame as a OneWay
-  with the raw bytes; a msgtrans peer never sends one.
+  that closes only that session, as msgtrans-rust's default `FramePolicy::Strict` does (its opt-in `Lenient` policy
+  instead delivers such a frame as a OneWay with the raw bytes; a msgtrans peer never sends one).
+- ⚖️ Frame size: WIRE_FORMAT §9.3 caps a QUIC frame at 16 MB and requires the receiver to fail on more; this codec
+  derives its cap from `maxPayloadLength`, 64 MiB by default (msgtrans-rust: 16 MiB), so with the defaults it accepts
+  frames the wire spec says to refuse. Open (stack roadmap): either the default follows the wire spec, or the
+  difference is declared; until then, `ConnectionConfig(maxPayloadLength = 16 * 1024 * 1024)` matches msgtrans-rust.
 
 **Verification** (macOS arm64, 2026-10-09; CI runs the same on Linux with epoll and io_uring):
 - `LengthPrefixedPacketCodecTest` (exact bytes, round trip, partial frames, limits, mismatched lengths) on native and
@@ -610,9 +614,8 @@ common code). The QUIC transports live in the separate `msgtrans-quic` artifact,
 
 **Wire** (msgtrans-rust 2.0.0-beta.2, `src/adapters/websocket.rs`), the contract:
 - One binary message per packet (§2), no length prefix; a received binary message must be exactly one packet
-  (`decode_exact_from`). msgtrans-rust's strict policy rejects text messages; its default lenient one wraps a text
-  message, or a binary one that is not a packet, as a OneWay with the raw bytes. Kotlin is strict (a msgtrans peer
-  never sends either).
+  (`decode_exact_from`). msgtrans-rust's default `FramePolicy::Strict` rejects text messages and binary messages
+  that are not a packet; its opt-in `Lenient` policy wraps them as a OneWay with the raw bytes. Kotlin is strict.
 - Subprotocol `msgtrans.v1`: offered by the client, echoed by a server that supports it; a client offering none is
   accepted. The server upgrades only on its configured path (default `/`) and answers 404 otherwise.
 - Keepalive: both sides ping every 30 s and end the session when a ping is not answered within 10 s; the server also

@@ -11,8 +11,8 @@ import neton.io.codec.Encoder
  *
  * Decoding is strict: a frame must hold exactly one packet (msgtrans-rust's `Packet::decode_exact_from`), and a frame
  * longer than the largest packet [maxPayloadLength] allows is rejected from its prefix, before it is buffered. Either
- * raises [ProtocolException]. (msgtrans-rust's default lenient policy turns such a frame into a OneWay packet with the
- * raw bytes as payload; a msgtrans peer never sends one.)
+ * raises [ProtocolException], as msgtrans-rust's default `FramePolicy::Strict` does (its opt-in `Lenient` policy turns
+ * such a frame into a OneWay packet with the raw bytes as payload).
  */
 class LengthPrefixedPacketCodec(
     /** Reject a packet claiming a payload larger than this (as [PacketCodec.maxPayloadLength]). */
