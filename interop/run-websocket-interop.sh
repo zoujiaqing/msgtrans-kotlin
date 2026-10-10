@@ -22,11 +22,14 @@ rejected() {
   if [ "$1" != 0 ] && grep -q "$3" "$2"; then echo "== PASS $4 (exit $1: $3)"
   else echo "== FAIL $4 (exit $1, expected a failure with '$3' in $2)"; FAILS=$((FAILS + 1)); fi
 }
+# finish <pid> <seconds>: wait for a server started here to exit on its own, else stop it; its exit code goes to RC.
+# Runs in this shell, not in $(...): a subshell cannot wait for this shell's children, and whether it got the code
+# depended on whether this shell had already reaped the child (an occasional false failure).
 finish() {
   for _ in $(seq 1 "$2"); do kill -0 "$1" 2>/dev/null || break; sleep 1; done
   kill "$1" 2>/dev/null
   wait "$1" 2>/dev/null
-  echo $?
+  RC=$?
 }
 
 # 1. Kotlin client -> Rust server (ws://)
@@ -35,7 +38,7 @@ RPID=$!
 sleep 1
 MSGTRANS_WS_INTEROP=client MSGTRANS_WS_INTEROP_URL=ws://127.0.0.1:$P/ "$K" --ktest_filter="$F" > "$L/ws1-kotlin-client.log" 2>&1
 R1=$?
-R1S=$(finish $RPID 15)
+finish $RPID 15; R1S=$RC
 ok $R1 "1. Kotlin client -> Rust server, ws (Kotlin)"
 ok $R1S "1. Kotlin client -> Rust server, ws (Rust)"
 grep -h "\[interop\]" "$L/ws1-kotlin-client.log" "$L/ws1-rust-server.log"
@@ -51,7 +54,7 @@ grep -h "\[interop\]" "$L/ws2b-rust-client.log"
 "$R" ws-client ws://127.0.0.1:$((P + 1))/ > "$L/ws2-rust-client.log" 2>&1
 ok $? "2. Rust client -> Kotlin server, ws (Rust)"
 grep -h "\[interop\]" "$L/ws2-rust-client.log"
-K2=$(finish $KPID 45)
+finish $KPID 45; K2=$RC
 ok $K2 "2. Rust client -> Kotlin server, ws (Kotlin)"
 grep -h "\[interop\]\|OK \]\|FAILED \]" "$L/ws2-kotlin-server.log"
 
@@ -67,7 +70,7 @@ grep -h "\[interop\]" "$L/ws3b-rust-client.log"
 "$R" ws-client wss://localhost:$((P + 2))/ "$C/ca.pem" > "$L/ws3-rust-client.log" 2>&1
 ok $? "3. Rust client -> Kotlin server, wss (Rust)"
 grep -h "\[interop\]" "$L/ws3-rust-client.log"
-K3=$(finish $KPID 45)
+finish $KPID 45; K3=$RC
 ok $K3 "3. Rust client -> Kotlin server, wss (Kotlin)"
 grep -h "\[interop\]\|OK \]\|FAILED \]" "$L/ws3-kotlin-server.log"
 
