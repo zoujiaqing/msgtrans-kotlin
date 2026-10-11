@@ -8,7 +8,7 @@ plugins { kotlin("jvm") version "2.1.21" apply false }
 val versions = mapOf(
     "openssl" to "4.0.2-3", "quic" to "0.3.0", "msgtrans-quic" to "0.2.0", "msgtrans-websocket" to "0.2.0", "tls-websocket" to "0.3.0",
 ).mapValues { (name, default) -> providers.gradleProperty("version.$name").getOrElse(default) }
-val modules = mapOf(
+val artifactsOf = mapOf(
     "quic" to listOf("quic"),
     "msgtrans-quic" to listOf("msgtrans-quic"),
     "ws" to listOf("msgtrans-websocket"),
@@ -19,12 +19,12 @@ subprojects {
     apply(plugin = "org.jetbrains.kotlin.jvm")
     apply(plugin = "application")
     dependencies {
-        for (artifact in modules.getValue(name)) add("implementation", "com.netonstream:$artifact:${versions.getValue(artifact)}")
+        for (artifact in artifactsOf.getValue(project.name)) add("implementation", "com.netonstream:$artifact:${versions.getValue(artifact)}")
     }
     extensions.configure<org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension> {
         compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8) }
         sourceSets.getByName("main").kotlin.srcDir(rootProject.file("shared"))
-        if (name != "quic") sourceSets.getByName("main").kotlin.srcDir(rootProject.file("shared-msgtrans"))
+        if (project.name != "quic") sourceSets.getByName("main").kotlin.srcDir(rootProject.file("shared-msgtrans"))
     }
     extensions.configure<JavaPluginExtension> {
         sourceCompatibility = JavaVersion.VERSION_1_8
