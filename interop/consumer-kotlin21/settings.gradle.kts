@@ -1,7 +1,7 @@
-// A downstream project on the oldest Kotlin the JVM artifacts promise (2.1, the KuiklyUI host line), with no
-// includeBuild: it compiles and runs against published artifacts only. -PstagedRepositories=<dir>,<dir>… points it at
-// local staging repositories (build/staging-repo of each library) before a release; those then serve com.netonstream
-// exclusively, so a same-numbered artifact already on Central cannot stand in for the staged one.
+// Downstream projects on the oldest Kotlin the JVM artifacts promise (2.1, the KuiklyUI host line), with no
+// includeBuild: they compile and run against published artifacts only (build.gradle.kts says which and why four).
+// -PstagedRepositories=<dir>,<dir>… points them at local staging repositories before a release; those then serve
+// com.netonstream exclusively, so a same-numbered artifact already on Central cannot stand in for the staged one.
 pluginManagement {
     repositories { gradlePluginPortal(); mavenCentral() }
 }
@@ -18,3 +18,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "consumer-kotlin21"
+include(":quic", ":msgtrans-quic", ":ws", ":wss")

@@ -1,0 +1,169 @@
+name: Stack release candidate
+
+# The whole stack as one release candidate, before anything is released: the libraries at the commits pinned in
+# interop/stack-pins.properties (and msgtrans at this commit) are built and published the way a release is, into one
+# Maven directory; every later job uses that directory only, never the sources.
+# - jvm-tests: each library's JVM tests, with its dependencies resolved from the candidate (-PreleaseRepositories).
+# - consumers: interop/consumer-kotlin21 (Kotlin 2.1; quic, msgtrans-quic, ws and wss, each resolving alone).
+# - android: interop/android-app-kotlin21 (Kotlin 2.1, AGP, R8 release) on x86_64 emulators, API 24 and 35.
+# Before a release: update the pins to the commits to release, push, and this runs (or start it by hand).
+on:
+  push:
+    branches: [main]
+    paths: [interop/stack-pins.properties, .github/workflows/stack-candidate.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  candidate:
+    runs-on: macos-14
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read the pins
+        id: pins
+        run: grep -E '^[a-z-]+=[0-9a-f]{40}$' interop/stack-pins.properties >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with: { repository: netonframework/openssl-kotlin, ref: "${{ steps.pins.outputs.openssl-kotlin }}", path: deps/openssl-kotlin }
+      - uses: actions/checkout@v4
+        with: { repository: netonframework/io, ref: "${{ steps.pins.outputs.io }}", path: deps/io }
+      - uses: actions/checkout@v4
+        with: { repository: netonframework/http, ref: "${{ steps.pins.outputs.http }}", path: deps/http }
+      - uses: actions/checkout@v4
+        with: { repository: netonframework/websocket, ref: "${{ steps.pins.outputs.websocket }}", path: deps/websocket }
+      - uses: actions/checkout@v4
+        with: { repository: netonframework/tls, ref: "${{ steps.pins.outputs.tls }}", path: deps/tls }
+      - uses: actions/checkout@v4
+        with: { repository: netonframework/quic, ref: "${{ steps.pins.outputs.quic }}", path: deps/quic }
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Cross toolchains (MinGW-w64, NDK 29, Kotlin/Native Linux sysroots)
+        run: |
+          brew install mingw-w64
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;29.0.14206865" > /dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
+          (cd deps/openssl-kotlin && ./gradlew :openssl:downloadKotlinNativeDistribution --console=plain)
+          KONANC="$HOME/.konan/kotlin-native-prebuilt-macos-aarch64-2.4.20/bin/konanc"
+          "$KONANC" deps/openssl-kotlin/scripts/bootstrap.kt -target linux_x64 -produce library -o build/bootstrap-x64
+          "$KONANC" deps/openssl-kotlin/scripts/bootstrap.kt -target linux_arm64 -produce library -o build/bootstrap-arm64
+      - name: Publish the candidate
+        run: bash interop/publish-stack-candidate.sh deps candidate-repo
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stack-candidate
+          path: candidate-repo/
+
+  jvm-tests:
+    needs: candidate
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+        jdk: ['8', '21']
+        lib:
+          - { repo: io, tasks: ":io:jvmTest :io-testkit:jvmTest" }
+          - { repo: http, tasks: ":http:jvmTest" }
+          - { repo: websocket, tasks: ":websocket:jvmTest" }
+          - { repo: tls, tasks: ":tls:jvmTest :tls-http:jvmTest :tls-websocket:jvmTest" }
+          - { repo: quic, tasks: ":quic:jvmTest" }
+          - { repo: msgtrans-kotlin, tasks: ":msgtrans:jvmTest :msgtrans-quic:jvmTest :msgtrans-websocket:jvmTest" }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read the pins
+        id: pins
+        run: grep -E '^[a-z-]+=[0-9a-f]{40}$' interop/stack-pins.properties >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        if: matrix.lib.repo != 'msgtrans-kotlin'
+        with: { repository: "netonframework/${{ matrix.lib.repo }}", ref: "${{ steps.pins.outputs[matrix.lib.repo] }}", path: lib }
+      - uses: actions/download-artifact@v4
+        with: { name: stack-candidate, path: candidate-repo }
+      - uses: actions/setup-java@v4
+        id: test-jdk
+        with:
+          distribution: zulu
+          java-version: ${{ matrix.jdk }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: JVM tests on JDK ${{ matrix.jdk }}, dependencies from the candidate
+        run: |
+          dir=lib; [ "${{ matrix.lib.repo }}" = msgtrans-kotlin ] && dir=.
+          repo="$PWD/candidate-repo"; [ "$RUNNER_OS" = Windows ] && repo="$(cygpath -m "$repo")"
+          cd "$dir"
+          ./gradlew -PreleaseRepositories="file:///${repo#/}" -PtestJavaHome="${{ steps.test-jdk.outputs.path }}" \
+            ${{ matrix.lib.tasks }} --continue --console=plain
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jvm-tests-${{ matrix.lib.repo }}-${{ matrix.os }}-jdk${{ matrix.jdk }}
+          path: |
+            **/build/test-results/jvmTest/**
+          if-no-files-found: ignore
+
+  consumers:
+    needs: candidate
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-14, macos-15-intel, windows-latest]
+        jdk: ['8', '21']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: stack-candidate, path: candidate-repo }
+      - uses: actions/setup-java@v4
+        id: run-jdk
+        with:
+          distribution: zulu
+          java-version: ${{ matrix.jdk }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Kotlin 2.1 consumers on JDK ${{ matrix.jdk }}
+        run: ./gradlew -p interop/consumer-kotlin21 -PstagedRepositories=../../candidate-repo -PrunJavaHome="${{ steps.run-jdk.outputs.path }}" run --console=plain
+
+  android:
+    needs: candidate
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [24, 35]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: stack-candidate, path: candidate-repo }
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: R8 release app on an x86_64 emulator, API ${{ matrix.api }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: ${{ matrix.api == 24 && 'default' || 'google_apis' }}
+          disable-animations: true
+          script: bash interop/android-app-smoke.sh -PstagedRepositories=$PWD/candidate-repo
