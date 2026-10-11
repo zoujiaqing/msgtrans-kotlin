@@ -32,3 +32,16 @@ kotlin {
         }
     }
 }
+
+// interop/android-smoke.sh: the JVM test classes with their runtime classpath, to dex for an Android device.
+tasks.register("androidSmokeClasspath") {
+    val test = kotlin.jvm().compilations.getByName("test")
+    dependsOn(test.compileTaskProvider)
+    val files = test.output.allOutputs + test.runtimeDependencyFiles!!
+    val out = layout.buildDirectory.file("android-smoke/classpath.txt")
+    outputs.file(out)
+    doLast {
+        out.get().asFile.apply { parentFile.mkdirs(); writeText(files.joinToString("\n") { it.absolutePath }) }
+    }
+}
+

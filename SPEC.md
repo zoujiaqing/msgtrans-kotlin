@@ -662,4 +662,8 @@ write operation at a time; reading runs beside them (`WebSocket.split`), and the
 - Depends on quic's JVM target (quic branch `tls-facade`), neton-io's JVM UDP (main) and openssl-kotlin 4.0.2-3, none
   released yet; until then on branch `quic-jvm`, built with `--include-build ../openssl-kotlin` (settings include
   ../io and ../quic).
+- On Android (2026-10-11): `interop/android-smoke.sh` dexes msgtrans-quic's JVM test classes with their runtime
+  classpath (d8) and runs `AndroidSmoke` with app_process next to openssl-kotlin's NDK-built libneton_openssl.so — no
+  app needed. Pixel_9 emulator, Android 16, arm64-v8a, ART: handshake in 67-156 ms, echoes of 0 B to 1 MB and 100
+  concurrent requests all matching (`PASS`). Pick the device with ANDROID_SERIAL when several are attached.
 
