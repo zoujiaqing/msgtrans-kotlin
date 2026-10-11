@@ -26,11 +26,16 @@ kotlin {
     // one version ahead. So the JVM build asks for stdlib 2.2.21 and uses no stdlib API newer than
     // 2.2 (API 2.1 is deprecated); native klibs are unaffected (they follow the compiler version).
     coreLibrariesVersion = "2.2.21"
+    // Language 2.2 for every source set the JVM compiles (KMP also requires a source set to be no older than the ones it
+    // depends on, so native-only ones may stay newer): class metadata then says 2.2, which a Kotlin 2.1 compiler still
+    // reads (one version ahead); with the 2.4 default it refuses to compile against these classes.
     jvm {
         compilerOptions {
             jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8)
             apiVersion.set(org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_2_2)
+            languageVersion.set(org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_2_2)
         }
+        compilations.configureEach { allKotlinSourceSets.forAll { it.languageSettings.languageVersion = "2.2" } }
     }
 
     // zstd comes from zstd-kmp wherever it publishes a variant (Apple, Linux, JVM). It publishes none
