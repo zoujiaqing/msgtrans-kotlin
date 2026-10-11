@@ -10,7 +10,6 @@ import kotlinx.coroutines.withTimeout
 import msgtrans.core.Compression
 import neton.io.net.ConnectException
 import neton.io.net.runReactor
-import neton.quic.testkit.TestCa
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -20,14 +19,16 @@ import kotlin.test.assertTrue
 import kotlin.time.TimeSource
 import kotlin.time.Duration.Companion.seconds
 
-/** The msgtrans session over QUIC between two Kotlin endpoints: the same API and contracts as over TCP. */
+/**
+ * The msgtrans session over QUIC between two Kotlin endpoints: the same API and contracts as over TCP. Runs on native
+ * and on the JVM (quic's TLS through openssl-kotlin's JNI library, its UDP through neton-io's NIO reactor).
+ */
 class QuicTransportTest {
-    private val ca = TestCa.create("msgtrans quic test CA")
-    private val identity = ca.issue("localhost", dnsNames = listOf("localhost"), ipAddresses = listOf("127.0.0.1"))
+    private val pki = quicTestPki()
 
     /** An echo server on an OS-chosen port: requests answered with their payload, one-way echoed back one-way. */
     private suspend fun CoroutineScope.echoServer(block: suspend (port: Int) -> Unit) {
-        val transport = QuicServerTransport("127.0.0.1", 0, identity.chainWith(ca.identity), identity.privateKey)
+        val transport = QuicServerTransport("127.0.0.1", 0, pki.chain, pki.key)
         val server = Transport.bind(this, transport) { conn ->
             conn.onRequest { payload, _ -> payload }
             conn.launch { conn.events().collect { conn.send(it.payload, it.bizType) } }
@@ -47,7 +48,7 @@ class QuicTransportTest {
     @Test
     fun requestResponseAndPushOverQuic() = test {
         echoServer { port ->
-            QuicClientTransport("127.0.0.1", port, ca.trustAnchors).use { client ->
+            QuicClientTransport("127.0.0.1", port, pki.trustAnchors).use { client ->
                 val conn = Transport.connect(this, client)
                 assertEquals("ping", conn.request("ping".encodeToByteArray(), bizType = 7).decodeToString())
 
@@ -63,7 +64,7 @@ class QuicTransportTest {
     @Test
     fun largeAndCompressedPayloads() = test {
         echoServer { port ->
-            QuicClientTransport("localhost", port, ca.trustAnchors).use { client ->
+            QuicClientTransport("localhost", port, pki.trustAnchors).use { client ->
                 val conn = Transport.connect(this, client)
                 for (size in listOf(0, 1, 1200, 70_000, 3_000_000)) {
                     val payload = Random(size).nextBytes(size)
@@ -81,7 +82,7 @@ class QuicTransportTest {
     @Test
     fun manyConcurrentRequestsAndSessions() = test {
         echoServer { port ->
-            QuicClientTransport("127.0.0.1", port, ca.trustAnchors).use { client ->
+            QuicClientTransport("127.0.0.1", port, pki.trustAnchors).use { client ->
                 val sessions = List(4) { Transport.connect(this, client) }
                 val replies = sessions.flatMapIndexed { s, conn ->
                     List(50) { i -> async { conn.request("s$s-r$i".encodeToByteArray()).decodeToString() } }
@@ -99,7 +100,7 @@ class QuicTransportTest {
     @Test
     fun localhostReachesAnIpv4OnlyServerWithoutWaitingOutTheTimeout() = test {
         echoServer { port ->
-            QuicClientTransport("localhost", port, ca.trustAnchors).use { client ->
+            QuicClientTransport("localhost", port, pki.trustAnchors).use { client ->
                 val start = TimeSource.Monotonic.markNow()
                 val conn = Transport.connect(this, client)
                 assertTrue(start.elapsedNow() < 3.seconds, "connecting took ${start.elapsedNow()}")
@@ -112,8 +113,7 @@ class QuicTransportTest {
     @Test
     fun anUntrustedServerIsRefused() = test {
         echoServer { port ->
-            val other = TestCa.create("unrelated CA")
-            QuicClientTransport("127.0.0.1", port, other.trustAnchors).use { client ->
+            QuicClientTransport("127.0.0.1", port, pki.unrelatedAnchors).use { client ->
                 assertFailsWith<ConnectException> { Transport.connect(this, client) }
             }
         }
@@ -122,13 +122,13 @@ class QuicTransportTest {
     @Test
     fun theSessionEndsWhenThePeerCloses() = test {
         val closed = Channel<Unit>(1)
-        val transport = QuicServerTransport("127.0.0.1", 0, identity.chainWith(ca.identity), identity.privateKey)
+        val transport = QuicServerTransport("127.0.0.1", 0, pki.chain, pki.key)
         val server = Transport.bind(this, transport) { conn ->
             conn.onRequest { payload, _ -> payload }
             conn.onClose { closed.trySend(Unit) }
         }
         val accepting = launch { server.acceptLoop() }
-        QuicClientTransport("127.0.0.1", transport.localAddress!!.port, ca.trustAnchors).use { client ->
+        QuicClientTransport("127.0.0.1", transport.localAddress!!.port, pki.trustAnchors).use { client ->
             val conn = Transport.connect(this, client)
             conn.request("hello".encodeToByteArray())
             conn.close()
@@ -139,3 +139,15 @@ class QuicTransportTest {
         transport.close()
     }
 }
+
+/** The certificates of these tests: the server's chain and key, what a client trusts, and an unrelated trust anchor. */
+internal class QuicTestPki(
+    val chain: neton.quic.proto.Certificates,
+    val key: neton.quic.proto.PrivateKey,
+    val trustAnchors: neton.quic.proto.Certificates,
+    val unrelatedAnchors: neton.quic.proto.Certificates,
+)
+
+/** Native: a CA and a leaf generated with OpenSSL at test time; the JVM, which cannot generate them: fixed ones. */
+internal expect fun quicTestPki(): QuicTestPki
+

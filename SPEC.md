@@ -650,3 +650,16 @@ write operation at a time; reading runs beside them (`WebSocket.split`), and the
   CA) to the Kotlin server — every check passed; a Rust client on another path got 404, one trusting another CA was
   refused (`UnknownIssuer`).
 
+### msgtrans-quic on the JVM (2026-10-11)
+- `QuicTransport` moved to commonMain unchanged (it used only common APIs) and the module gained a JVM target (bytecode
+  1.8, API 2.2, stdlib 2.2.21, as msgtrans): quic's TLS goes through openssl-kotlin's JNI library, its UDP through
+  neton-io's NIO reactor.
+- `QuicTransportTest` moved to commonTest; its certificates come from `expect fun quicTestPki()` — native: a CA and a
+  leaf generated with OpenSSL at test time (`TestCa`); the JVM, which cannot generate them: fixed self-signed ones.
+  All six tests pass on the JVM and on macOS arm64: request / response and push; 0 B to 3 MB payloads and zstd / zlib;
+  4 sessions × 50 concurrent requests; `localhost` reaching an IPv4-only server without waiting out the timeout; an
+  untrusted server refused; the server's session ending when the client closes.
+- Depends on quic's JVM target (quic branch `tls-facade`), neton-io's JVM UDP (main) and openssl-kotlin 4.0.2-3, none
+  released yet; until then on branch `quic-jvm`, built with `--include-build ../openssl-kotlin` (settings include
+  ../io and ../quic).
+
