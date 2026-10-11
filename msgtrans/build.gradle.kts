@@ -2,7 +2,6 @@ import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget
 import org.jetbrains.kotlin.konan.target.KonanTarget
 
 plugins { kotlin("multiplatform") }
-repositories { mavenCentral() }
 
 // One artifact: the wire codec (msgtrans.core) and the session/transport layer (msgtrans.transport)
 // ship together, the way the Rust crate does. Additional protocols (WebSocket, QUIC) and the RPC

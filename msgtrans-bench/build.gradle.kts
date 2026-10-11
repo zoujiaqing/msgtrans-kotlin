@@ -1,5 +1,4 @@
 plugins { kotlin("multiplatform") }
-repositories { mavenCentral() }
 
 // Benchmark harness (bench/run.sh): one server and one client binary, mode-selected
 // (raw | framed | rpc) so the three layers share identical harness code. Not published.

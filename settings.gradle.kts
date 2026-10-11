@@ -1,6 +1,16 @@
 pluginManagement {
     repositories { gradlePluginPortal(); mavenCentral(); google() }
 }
+dependencyResolutionManagement {
+    repositories {
+        // -PreleaseRepositories=<dir>,<dir>…: unreleased dependencies from local Maven repositories (a release
+        // candidate's, in CI), ahead of Maven Central.
+        providers.gradleProperty("releaseRepositories").orNull?.split(",")?.forEach { path ->
+            maven { url = uri(path) }
+        }
+        mavenCentral()
+    }
+}
 rootProject.name = "msgtrans-kotlin"
 // neton-io is the I/O foundation. Consumed as a sibling composite build during development (where the
 // checkout exists) so both compile with one Kotlin/Native toolchain; its coordinates match the published

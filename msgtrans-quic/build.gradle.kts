@@ -1,5 +1,4 @@
 plugins { kotlin("multiplatform") }
-repositories { mavenCentral() }
 
 // Its own version line, starting at 0.1.0 (the root sets msgtrans's).
 version = "0.2.0"
