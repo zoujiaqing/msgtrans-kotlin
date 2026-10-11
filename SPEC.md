@@ -667,3 +667,15 @@ write operation at a time; reading runs beside them (`WebSocket.split`), and the
   app needed. Pixel_9 emulator, Android 16, arm64-v8a, ART: handshake in 67-156 ms, echoes of 0 B to 1 MB and 100
   concurrent requests all matching (`PASS`). Pick the device with ANDROID_SERIAL when several are attached.
 
+### msgtrans-websocket on the JVM and Android (2026-10-11)
+- `WebSocketTransport` moved to commonMain unchanged; JVM target (bytecode 1.8, API 2.2, stdlib 2.2.21). The chain
+  below it gained JVM targets the same day: http, websocket (permessage-deflate on java.util.zip), tls, tls-websocket,
+  with openssl-kotlin's JNI library for wss.
+- `WebSocketTransportTest` moved to commonTest; the wss test's certificates come from `expect fun wssTestPki()`
+  (native: `TestCa`; JVM: a fixed self-signed one). All 8 pass on the JVM and on macOS arm64 (with the msgtrans-rust
+  interop test there): request / response and push, large and zstd / zlib payloads, concurrency, a wrong path, wss,
+  ping / pong timeouts, a text message or partial packet ending only that session.
+- Android (`SMOKE_MODULE=msgtrans-websocket interop/android-smoke.sh`, Pixel_9 emulator, Android 16, arm64-v8a): ws
+  and wss, echoes of 0 B to 1 MB and 100 concurrent requests each, all matching (`PASS`). Without zstd: zstd-kmp's
+  JVM artifact carries desktop native libraries only, so compression with zstd is not available on Android yet.
+

@@ -16,7 +16,6 @@ import neton.io.core.IoStream
 import neton.io.net.ConnectException
 import neton.io.net.runReactor
 import neton.openssl.TlsContext
-import neton.quic.testkit.TestCa
 import neton.tls.tlsAccept
 import neton.tls.websocket.WssConnector
 import neton.websocket.Message
@@ -28,7 +27,10 @@ import kotlin.test.assertFailsWith
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
-/** The msgtrans session over WebSocket between two Kotlin endpoints: the same API and contracts as over TCP. */
+/**
+ * The msgtrans session over WebSocket between two Kotlin endpoints: the same API and contracts as over TCP. Runs on
+ * native and on the JVM (wss through openssl-kotlin's JNI library).
+ */
 class WebSocketTransportTest {
 
     /** An echo server on an OS-chosen port: requests answered with their payload, one-way echoed back one-way. */
@@ -107,11 +109,10 @@ class WebSocketTransportTest {
 
     @Test
     fun wss() = test {
-        val ca = TestCa.create("msgtrans websocket test CA")
-        val identity = ca.issue("localhost", dnsNames = listOf("localhost"), ipAddresses = listOf("127.0.0.1"))
-        val serverTls = TlsContext(server = true, certificateChainPem = identity.certPem.encodeToByteArray(),
-            privateKeyPem = identity.keyPem.encodeToByteArray(), alpnProtocols = listOf("http/1.1"))
-        val clientTls = TlsContext(server = false, trustRootsPem = ca.identity.certPem.encodeToByteArray(), alpnProtocols = listOf("http/1.1"))
+        val pki = wssTestPki()
+        val serverTls = TlsContext(server = true, certificateChainPem = pki.certificatePem.encodeToByteArray(),
+            privateKeyPem = pki.keyPem.encodeToByteArray(), alpnProtocols = listOf("http/1.1"))
+        val clientTls = TlsContext(server = false, trustRootsPem = pki.trustPem.encodeToByteArray(), alpnProtocols = listOf("http/1.1"))
         val transport = WebSocketServerTransport("127.0.0.1", 0, tlsAcceptor = { tlsAccept(it, serverTls) })
         echoServer(transport) { port ->
             val conn = Transport.connect(this, WebSocketClientTransport("wss://localhost:$port/", tlsConnector = WssConnector(clientTls)))
@@ -169,3 +170,10 @@ class WebSocketTransportTest {
         }
     }
 }
+
+/** The wss test certificates: the server's chain and key (PEM) and what the client trusts. */
+internal class WssTestPki(val certificatePem: String, val keyPem: String, val trustPem: String)
+
+/** Native: a CA and a leaf generated with OpenSSL at test time; the JVM, which cannot generate them: fixed ones. */
+internal expect fun wssTestPki(): WssTestPki
+

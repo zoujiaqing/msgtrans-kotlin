@@ -1,19 +1,21 @@
 #!/bin/bash
-# msgtrans over QUIC on an Android device or emulator without an app (msgtrans-quic's jvmTest AndroidSmoke): the JVM
+# msgtrans on an Android device or emulator without an app (a module's jvmTest AndroidSmoke): the JVM
 # classes and their runtime classpath are converted to dex with d8 and run with app_process, next to the NDK-built
 # libneton_openssl.so of openssl-kotlin (scripts/build-jni.sh <androidNative target>).
 # Usage: android-smoke.sh <libneton_openssl.so for the device's ABI> [extra gradle arguments, e.g. --include-build ../openssl-kotlin]
-# Needs ANDROID_HOME (adb, build-tools' d8) and one device in `adb devices`.
+# SMOKE_MODULE picks the module: msgtrans-quic (default) or msgtrans-websocket (ws and wss).
+# Needs ANDROID_HOME (adb, build-tools' d8) and one device in `adb devices` (or ANDROID_SERIAL).
 set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
 so=$(cd "$(dirname "$1")" && pwd)/$(basename "$1"); shift
 sdk=${ANDROID_HOME:-$HOME/Library/Android/sdk}
 adb="$sdk/platform-tools/adb"
 d8=$(ls -d "$sdk"/build-tools/*/ | sort -V | tail -1)d8
-work="$here/msgtrans-quic/build/android-smoke"
+module=${SMOKE_MODULE:-msgtrans-quic}
+work="$here/$module/build/android-smoke"
 device=/data/local/tmp/neton-smoke
 
-(cd "$here" && ./gradlew -q "$@" :msgtrans-quic:androidSmokeClasspath)
+(cd "$here" && ./gradlew -q "$@" :$module:androidSmokeClasspath)
 rm -rf "$work/jars" "$work/dex" && mkdir -p "$work/jars" "$work/dex"
 n=0
 while read -r entry; do
