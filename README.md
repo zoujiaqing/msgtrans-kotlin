@@ -65,10 +65,10 @@ One published artifact, `com.netonstream:msgtrans`, the way the Rust crate is on
 - package `msgtrans.transport` — the `Connection` session, `Transport` client/server, the
   `ClientTransport`/`ServerTransport` protocol seam (TCP here). Runs on the neton-io reactor.
 
-`com.netonstream:msgtrans-quic` (Apple and Linux) adds QUIC: `QuicClientTransport` /
+`com.netonstream:msgtrans-quic` (native targets and the JVM) adds QUIC: `QuicClientTransport` /
 `QuicServerTransport` on `com.netonstream:quic`, wire-compatible with msgtrans-rust's QUIC transport
 (see [QUIC](#quic)). It is a separate artifact because it brings QUIC and OpenSSL, which TCP users and
-the JVM / Android artifact do not need. Likewise `com.netonstream:msgtrans-websocket` (Apple and Linux):
+the JVM / Android artifact do not need. Likewise `com.netonstream:msgtrans-websocket` (native targets and the JVM):
 `WebSocketClientTransport` / `WebSocketServerTransport` on `com.netonstream:websocket`, wire-compatible
 with msgtrans-rust's WebSocket transport (see [WebSocket](#websocket)). The RPC layer will be an add-on
 module too; nothing needs the codec without the session, so those two are not split.
@@ -239,6 +239,38 @@ counters have one width on every target.
 JVM (2026-10-03): the transport is common code over neton-io's NIO reactor; zstd comes from zstd-kmp's JVM
 artifact and zlib from `java.util.zip`. The full suite (44 cases, moved to commonTest) passes on JDK 17
 (`./gradlew :msgtrans:jvmTest`) as on macOS. Bytecode 1.8, so an Android library can depend on it.
+
+Android apps (2026-10-11) use the JVM artifacts, plus OpenSSL's Android libraries for QUIC and wss:
+
+```kotlin
+android {
+    defaultConfig {
+        minSdk = 24                                          // the stack's floor
+        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }  // the ABIs openssl-android-natives has
+    }
+    packaging { resources { excludes += "META-INF/native/**" } }  // the openssl jar's desktop libraries
+}
+dependencies {
+    implementation("com.netonstream:msgtrans-quic:<version>")
+    implementation("com.netonstream:openssl-android-natives:<openssl version>")
+}
+```
+
+- **Kotlin 2.1 hosts.** The JVM classes carry Kotlin metadata 2.2, and their stdlib is 2.2.21, so a
+  Kotlin 2.1 compiler reads them.
+- **R8.** The keep rules ship inside the jars (`META-INF/proguard`).
+- **minSdk 24.** This comes from the bytecode: `interop/android-min-api.py` checks every platform reference
+  against the SDK's `api-versions.xml`. The API 26 references are unsigned arithmetic, which D8 backports.
+- **What is checked.**
+  - `interop/consumer-kotlin21` compiles against staged artifacts with Kotlin 2.1.21 and runs QUIC, ws
+    and wss echo on a desktop JVM.
+  - `interop/android-app-smoke.sh` builds `interop/android-app-kotlin21` and runs it on a device.
+    That app is Kotlin 2.1.21, built with AGP as an R8 release, and runs the same three echoes inside
+    an app.
+  - Both passed against staged artifacts on 2026-10-11, on Android 16 (API 36) and Android 7.0
+    (API 24), both arm64-v8a emulators.
+  - x86_64 is built but has not been run.
+  - These are protocol smokes in ART, not device or network qualification.
 
 Android Native (2026-10-03): the full suite (44 cases, including the Rust fixtures and compressed
 transport) passes on an arm64-v8a emulator (API 36) running the test binary under adb; armeabi-v7a,
