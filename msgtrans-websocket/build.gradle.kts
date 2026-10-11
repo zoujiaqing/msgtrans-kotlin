@@ -2,7 +2,7 @@ plugins { kotlin("multiplatform") }
 repositories { mavenCentral() }
 
 // Its own version line, starting at 0.1.0 (the root sets msgtrans's).
-version = "0.1.0"
+version = "0.2.0"
 
 // msgtrans over WebSocket: a separate artifact because it brings com.netonstream:websocket (and its HTTP), which TCP
 // users do not need. The targets msgtrans and websocket both provide: native, and the JVM (desktop and Android apps),
@@ -26,16 +26,16 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(project(":msgtrans"))
-            api("com.netonstream:websocket:0.2.0")
+            api("com.netonstream:websocket:0.3.0")
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
             // wss in the tests: TLS on both sides.
-            implementation("com.netonstream:tls-websocket:0.2.0")
+            implementation("com.netonstream:tls-websocket:0.3.0")
         }
         nativeTest.dependencies {
             // Certificates generated at test time (the JVM uses fixed ones).
-            implementation("com.netonstream:quic-testkit:0.2.0")
+            implementation("com.netonstream:quic-testkit:0.3.0")
         }
     }
 }

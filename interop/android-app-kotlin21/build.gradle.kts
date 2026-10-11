@@ -4,9 +4,9 @@ plugins {
 }
 
 // The coordinates under test; override with -PmsgtransQuicVersion=… etc. when staging a release.
-val msgtransQuic = providers.gradleProperty("msgtransQuicVersion").getOrElse("0.1.1")
-val msgtransWebSocket = providers.gradleProperty("msgtransWebSocketVersion").getOrElse("0.1.0")
-val tls = providers.gradleProperty("tlsVersion").getOrElse("0.2.0")
+val msgtransQuic = providers.gradleProperty("msgtransQuicVersion").getOrElse("0.2.0")
+val msgtransWebSocket = providers.gradleProperty("msgtransWebSocketVersion").getOrElse("0.2.0")
+val tls = providers.gradleProperty("tlsVersion").getOrElse("0.3.0")
 val openssl = providers.gradleProperty("opensslVersion").getOrElse("4.0.2-3")
 
 android {
