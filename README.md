@@ -258,7 +258,9 @@ dependencies {
 
 - **Kotlin 2.1 hosts.** The JVM classes carry Kotlin metadata 2.2, and their stdlib is 2.2.21, so a
   Kotlin 2.1 compiler reads them.
-- **R8.** The keep rules ship inside the jars (`META-INF/proguard`).
+- **R8.** The keep rules ship inside the jars (`META-INF/proguard`). msgtrans's jar also covers zstd-kmp:
+  zstd-kmp ships no rules, and once R8 renames its classes, the first zstd call aborts the app.
+- **zstd.** zstd works in apps: AGP picks zstd-kmp's Android variant, which carries its own libraries.
 - **minSdk 24.** This comes from the bytecode: `interop/android-min-api.py` checks every platform reference
   against the SDK's `api-versions.xml`. The API 26 references are unsigned arithmetic, which D8 backports.
 - **What is checked.**
@@ -266,7 +268,7 @@ dependencies {
     and wss echo on a desktop JVM.
   - `interop/android-app-smoke.sh` builds `interop/android-app-kotlin21` and runs it on a device.
     That app is Kotlin 2.1.21, built with AGP as an R8 release, and runs the same three echoes inside
-    an app.
+    an app, plus zstd- and zlib-compressed requests.
   - Both passed against staged artifacts on 2026-10-11, on Android 16 (API 36) and Android 7.0
     (API 24), both arm64-v8a emulators.
   - x86_64 is built but has not been run.

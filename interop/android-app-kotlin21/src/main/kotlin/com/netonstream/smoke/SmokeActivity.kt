@@ -11,6 +11,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import msgtrans.core.Compression
 import msgtrans.transport.Connection
 import msgtrans.transport.QuicClientTransport
 import msgtrans.transport.QuicServerTransport
@@ -29,8 +30,8 @@ import kotlin.random.Random
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * msgtrans echo over QUIC, ws and wss on loopback inside an app process, after R8. Each line goes to logcat under the
- * tag "msgtrans-smoke"; the last one is "PASS" or "FAIL …" (interop/android-app-smoke.sh waits for it).
+ * msgtrans echo over QUIC, ws and wss on loopback inside an app process, after R8, plain and zstd / zlib compressed.
+ * Each line goes to logcat under the tag "msgtrans-smoke"; the last one is "PASS" or "FAIL …" (interop/android-app-smoke.sh waits for it).
  */
 class SmokeActivity : Activity() {
     private lateinit var view: TextView
@@ -102,6 +103,11 @@ class SmokeActivity : Activity() {
         for (size in listOf(0, 1, 1200, 70_000, 1_000_000)) {
             val payload = Random(size).nextBytes(size)
             if (!conn.request(payload, bizType = 1).contentEquals(payload)) failures++
+        }
+        // Compressed requests: zstd through zstd-kmp's Android libraries, zlib through java.util.zip.
+        val compressible = ByteArray(200_000) { (it % 7).toByte() }
+        for (compression in listOf(Compression.Zstd, Compression.Zlib)) {
+            if (!conn.request(compressible, bizType = 1, compression = compression).contentEquals(compressible)) failures++
         }
         val replies = List(100) { i -> async { conn.request("r$i".encodeToByteArray()).decodeToString() } }.awaitAll()
         if (replies != List(100) { "r$it" }) failures++
