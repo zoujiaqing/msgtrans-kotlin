@@ -2,6 +2,7 @@ package msgtrans.transport
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
@@ -9,6 +10,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import msgtrans.core.Packet
@@ -55,7 +57,7 @@ const val MSGTRANS_WEBSOCKET_SUBPROTOCOL: String = "msgtrans.v1"
 class WebSocketTransportOptions(
     /** Send a ping after this long; `null` sends none (the peer's pings are always answered). */
     val pingInterval: Duration? = 30.seconds,
-    /** Close the session when a ping is not answered within this long. */
+    /** Maximum time to send a ping (including lock wait), then separately to wait for its answer. */
     val pongTimeout: Duration = 10.seconds,
     /** Client: give up on the TCP connection and the handshake after this long. Server: on the handshake. */
     val handshakeTimeout: Duration = 10.seconds,
@@ -64,7 +66,17 @@ class WebSocketTransportOptions(
      * it to match a smaller `ConnectionConfig.maxPayloadLength`.
      */
     val maxMessageSize: Int = (Packet.FIXED_HEADER_SIZE + 0xFFFF + PacketCodec.DEFAULT_MAX_PAYLOAD).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+    /** Server: maximum simultaneous handshakes; further connections wait in the TCP backlog. */
+    val maxConcurrentHandshakes: Int = 64,
+    /** Server: completed upgrades waiting for accept; overflow connections are aborted. */
+    val maxPendingConnections: Int = 64,
 ) {
+    init {
+        require(maxConcurrentHandshakes > 0)
+        require(maxPendingConnections > 0)
+        require(pingInterval == null || (pingInterval.isFinite() && pingInterval > Duration.ZERO))
+        require(pongTimeout.isFinite() && pongTimeout > Duration.ZERO)
+    }
     internal fun webSocketConfig(): WebSocketConfig = WebSocketConfig(maxMessageSize = maxMessageSize, maxFrameSize = maxMessageSize)
 }
 
@@ -99,8 +111,8 @@ class WebSocketClientTransport(
 /**
  * msgtrans over WebSocket, server side — wire-compatible with msgtrans-rust's WebSocket transport. Accepts upgrades on
  * [path] only (404 otherwise, as msgtrans-rust); echoes `msgtrans.v1` when the client offers it. Each handshake runs
- * beside the accept loop with [WebSocketTransportOptions.handshakeTimeout] (msgtrans-rust does the same), so a slow
- * client holds up nobody.
+ * beside the accept loop with [WebSocketTransportOptions.handshakeTimeout], up to
+ * [WebSocketTransportOptions.maxConcurrentHandshakes]. Completed upgrades wait in a bounded queue.
  *
  * [tlsAcceptor] turns each accepted TCP stream into a TLS one for `wss://` (e.g. `{ tlsAccept(it, context) }` with
  * `com.netonstream:tls`); msgtrans-rust's WebSocket server has no TLS of its own.
@@ -127,17 +139,28 @@ class WebSocketServerTransport(
     private inner class WebSocketAcceptor(private val listener: TcpListener, private val scope: CoroutineScope) :
         ServerTransport.Acceptor {
         /** Sessions whose handshake is done, waiting for [accept]. */
-        private val ready = Channel<IoStream>(Channel.UNLIMITED) { it.close() }
+        private val ready = Channel<WebSocket>(options.maxPendingConnections) { it.abort() }
+        private val handshakes = Semaphore(options.maxConcurrentHandshakes)
 
         init {
-            scope.launch {
+            scope.launch(start = CoroutineStart.UNDISPATCHED) {
                 try {
                     while (true) {
-                        val tcp = try { listener.accept() } catch (e: IoException) { break }
-                        launch { handshake(tcp) }
+                        handshakes.acquire()
+                        val tcp = try { listener.accept() } catch (e: Throwable) {
+                            handshakes.release()
+                            if (e is IoException) break
+                            throw e
+                        }
+                        // Enter the finally before cancellation can prevent the child from starting.
+                        launch(start = CoroutineStart.UNDISPATCHED) {
+                            try { handshake(tcp) } finally { handshakes.release() }
+                        }
                     }
                 } finally {
-                    ready.close()
+                    listener.close()
+                    ready.cancel()
+                    scope.cancel()
                 }
             }
         }
@@ -163,18 +186,19 @@ class WebSocketServerTransport(
                 if (e is CancellationException && scope.coroutineContext[Job]?.isActive == false) throw e
                 return
             }
-            val session = WebSocketPacketStream.start(ws, options)
-            if (ready.trySend(session).isFailure) session.close()
+            if (ready.trySend(ws).isFailure) ws.abort()
         }
 
-        override suspend fun accept(): IoStream = ready.receiveCatching().getOrNull() ?: throw ClosedException()
+        override suspend fun accept(): IoStream {
+            val ws = ready.receiveCatching().getOrNull() ?: throw ClosedException()
+            return try { WebSocketPacketStream.start(ws, options) } catch (t: Throwable) { ws.abort(); throw t }
+        }
 
         /** Stop accepting; sessions already handed out carry on. */
         override fun close() {
             listener.close()
             scope.cancel()
-            ready.close()
-            while (true) ready.tryReceive().getOrNull()?.close() ?: break
+            ready.cancel()
         }
     }
 }
@@ -191,7 +215,7 @@ class WebSocketServerTransport(
  *   not answered within [WebSocketTransportOptions.pongTimeout] ends the session (msgtrans-rust's keepalive);
  * - [close] sends a Close frame (normal closure), then closes the connection.
  */
-private class WebSocketPacketStream private constructor(
+internal class WebSocketPacketStream private constructor(
     private val ws: WebSocket,
     private val options: WebSocketTransportOptions,
     /** The keepalive and the closing handshake run here: the connection's reactor, with their own Job. */
@@ -220,18 +244,30 @@ private class WebSocketPacketStream private constructor(
     private fun startKeepalive() {
         val interval = options.pingInterval ?: return
         scope.launch {
-            while (true) {
-                delay(interval)
-                val sent = TimeSource.Monotonic.markNow()
-                writeLock.withLock { writer.send(Message.Ping(Bytes.EMPTY)) }
-                delay(options.pongTimeout)
-                if (lastPong < sent) {
-                    // No pong since the ping: the peer is gone or stuck (msgtrans-rust closes with CloseReason::Timeout).
-                    ws.abort()
-                    return@launch
+            try {
+                while (true) {
+                    delay(interval)
+                    val sent = TimeSource.Monotonic.markNow()
+                    withTimeout(options.pongTimeout) {
+                        writeLock.withLock { writer.send(Message.Ping(Bytes.EMPTY)) }
+                    }
+                    delay(options.pongTimeout)
+                    if (lastPong < sent) return@launch
                 }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: WebSocketException) {
+                // A failed ping is a connection failure, not an uncaught application exception.
+            } catch (_: IoException) {
+            } finally {
+                if (!closed) abort()
             }
         }
+    }
+
+    private fun abort() {
+        closed = true
+        try { ws.abort() } finally { scope.cancel() }
     }
 
     override suspend fun read(dst: Buffer): Int {
@@ -293,13 +329,12 @@ private class WebSocketPacketStream private constructor(
         closed = true
         scope.coroutineContext[Job]?.children?.forEach { it.cancel() }
         // The closing handshake, bounded; then the connection is closed whatever happened.
-        scope.launch {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 withTimeout(CLOSE_TIMEOUT) { writeLock.withLock { writer.close(CloseFrame(CloseCode.Normal, "")) } }
             } catch (_: Throwable) {
             } finally {
-                ws.abort()
-                scope.cancel()
+                abort()
             }
         }
     }

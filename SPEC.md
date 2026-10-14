@@ -634,10 +634,16 @@ write operation at a time; reading runs beside them (`WebSocket.split`), and the
   from `com.netonstream:tls-websocket`). Connect and handshake are bounded by `handshakeTimeout`; failures are
   `ConnectException` (a 404 included).
 - `WebSocketServerTransport(host, port, path = "/", options, tlsAcceptor)`: a TCP listener whose accepted connections
-  are upgraded in their own coroutines with `handshakeTimeout` (msgtrans-rust's latest fix does the same), so a slow
-  client holds up nobody; `tlsAcceptor` makes it `wss://` (e.g. with `com.netonstream:tls`).
+  are upgraded in their own coroutines with `handshakeTimeout`; `tlsAcceptor` makes it `wss://`.
+  `maxConcurrentHandshakes` (default 64) bounds admission before accepting another TCP stream; excess connections
+  wait in the OS backlog. `maxPendingConnections` (default 64) bounds completed upgrades waiting for `accept()`;
+  queue overflow is aborted immediately. Closing or cancelling the acceptor releases queued connections and
+  in-progress handshakes, but leaves already delivered sessions alone. Keepalive starts only after delivery.
 - `WebSocketTransportOptions`: ping interval, pong timeout, handshake timeout, and the message / frame limit, by
   default the largest packet `PacketCodec` accepts.
+- Keepalive bounds both waiting for the write lock / sending Ping and then waiting for Pong, each by `pongTimeout`.
+  A stalled send, missing Pong, or connection I/O failure aborts only that session. Normal packet writes do not
+  create per-write timers; the keepalive checks run once per interval. Close is idempotent and bounded by 1 s.
 - The declared `WebSocketClientTransport` stub left `msgtrans` (as the QUIC one did in 0.3.0).
 
 **Verification** (macOS arm64, 2026-10-09; CI runs the same on Linux with epoll and io_uring):

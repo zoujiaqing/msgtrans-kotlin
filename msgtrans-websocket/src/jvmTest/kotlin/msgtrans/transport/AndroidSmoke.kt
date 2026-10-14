@@ -20,7 +20,7 @@ import kotlin.time.TimeSource
 /**
  * msgtrans over WebSocket on an Android device or emulator, outside an app (interop/android-smoke.sh): ws and wss (TLS
  * through the NDK-built libneton_openssl.so), each an echo server and a client in one process over loopback; requests
- * of 0 B to 1 MB and 100 concurrent ones; exit status 0 when every echo matches. No zstd: zstd-kmp's JVM artifact
+ * of 0 B to 1 MB and 100 concurrent ones, followed by lifecycle regressions; exit status 0 when all pass. No zstd: zstd-kmp's JVM artifact
  * carries desktop native libraries only.
  */
 fun main() {
@@ -39,6 +39,14 @@ fun main() {
             serverTls.close(); clientTls.close()
         }
     }
+    WebSocketLifecycleTest().apply {
+        handshakeAdmissionIsBoundedAndPermitsAreReused()
+        pendingQueueRejectsOverflowAndCloseReleasesQueuedSockets()
+        cancellingTheOwnerReleasesQueuedAndHandshakingConnections()
+        blockedPingAndBlockedApplicationWriteAreAborted()
+        failedPingIsContainedAndCloseIsIdempotent()
+    }
+    println("lifecycle regressions: ok")
     println("${if (failures == 0) "PASS" else "FAIL ($failures)"} in ${start.elapsedNow()}")
     exitProcess(if (failures == 0) 0 else 1)
 }
