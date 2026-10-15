@@ -61,7 +61,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api("com.netonstream:io:0.4.0")
-            api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
+            api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
         }
         getByName("zstdKmpMain").dependencies {
             implementation("com.squareup.zstd:zstd-kmp:0.4.0")
