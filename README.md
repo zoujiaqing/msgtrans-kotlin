@@ -75,11 +75,16 @@ module too; nothing needs the codec without the session, so those two are not sp
 `msgtrans-bench` (the harness behind `bench/run.sh`) is not published.
 
 ```kotlin
-dependencies { implementation("com.netonstream:msgtrans:0.4.0") }
+dependencies { implementation("com.netonstream:msgtrans:0.5.0") }
 ```
 
 Consumers must compile with the same Kotlin version as the release (2.4.20 from 0.3.0 on; 0.2.0 was built with 2.4.0):
 the artifacts are klibs, and klib binary compatibility is bound to the compiler version.
+
+**0.5.0** (2026-10-20), with **msgtrans-quic 0.2.0** and **msgtrans-websocket 0.2.0**: the JVM and Android
+targets (desktop and Android apps; JVM sources compiled at language 2.2 so Kotlin 2.1 hosts can read the metadata),
+QUIC and WebSocket transports in common code, bounded WebSocket admission and hardened connection cleanup; on io
+0.4, quic 0.3.0, websocket and tls-websocket 0.3.0.
 
 **0.4.0** (2026-10-10), with **msgtrans-websocket 0.1.0** and **msgtrans-quic 0.1.1**: WebSocket, interoperable with
 msgtrans-rust ([WebSocket](#websocket)); the declared `WebSocketClientTransport` stub left this artifact.
@@ -127,7 +132,7 @@ it — so a connection reference can be shared with worker threads safely.
 ### QUIC
 
 ```kotlin
-dependencies { implementation("com.netonstream:msgtrans-quic:0.1.1") }
+dependencies { implementation("com.netonstream:msgtrans-quic:0.2.0") }
 
 runReactor {
     val serverTransport = QuicServerTransport("0.0.0.0", 9443, Certificates.pem(certPem), PrivateKey.pem(keyPem))
@@ -159,7 +164,7 @@ refusal of a server certificate from another CA in each direction.
 ### WebSocket
 
 ```kotlin
-dependencies { implementation("com.netonstream:msgtrans-websocket:0.1.0") }
+dependencies { implementation("com.netonstream:msgtrans-websocket:0.2.0") }
 
 runReactor {
     val serverTransport = WebSocketServerTransport("0.0.0.0", 8080, path = "/")
